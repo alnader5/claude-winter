@@ -32,12 +32,18 @@ export type Activity = 'think' | 'edit' | 'read' | 'run' | 'web' | 'wait'
 // switching from one kind of tool to another (a puff, then the new prop).
 export type Opening = 'start' | 'switch'
 
-// The work the band shows, and how many helpers are out: the agents Claude sent off,
-// still at work.
+// What the person's prompt sounds like to the band, read as the turn starts: nothing
+// typed (a turn that goes on by itself), a plain request, thanks or praise, a hurry, or
+// a question.
+export type Tone = 'none' | 'plain' | 'thanks' | 'urgent' | 'question'
+
+// The work the band shows, how many helpers are out (the agents Claude sent off, still
+// at work), and how the turn's prompt sounded.
 export type Work = {
   activity: Activity
   opening: Opening
   helpers: number
+  tone: Tone
 }
 
 declare module 'claude-code' {

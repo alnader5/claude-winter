@@ -1,13 +1,14 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeSetArgs, Timer, TurnCompleteReason } from 'claude-code'
 
-import type { Activity, Motion, Occasion, Sky, Work } from '../types'
-import { ALT, BAND_HEIGHT, ENDING_MS, MAX_WIDTH, bandOf } from './band'
+import type { Activity, Motion, Occasion, Sky, Tone, Work } from '../types'
+import { ALT, BAND_HEIGHT, ENDING_MS, MAX_WIDTH, bandOf, openingMsOf } from './band'
 import type { Ending, Mood } from './band'
 import { makeColors } from './make-colors.js'
 import { WINTER } from './palette'
 import { SCENE_ALT, SCENE_NAME, sceneOf } from './scene'
 import { sameWhen, whenOf } from './time'
+import { toneOf } from './tone'
 import { FRESH_WORK, MAX_HELPERS, activityOf, workAltOf } from './work'
 
 const { theme, problems } = makeColors(WINTER)
@@ -34,11 +35,11 @@ function drawn(key: string, draw: () => string): string {
 }
 
 // The band at work is drawn for the work as well: what Claude is busy with, how the
-// band opens, and how many helpers are out.
+// band opens, how many helpers are out, and how the prompt sounded.
 const bandFor = (mood: Mood, calm: boolean, occasion: Occasion, work: Work) => {
   const at = mood === 'working' ? work : FRESH_WORK
 
-  return drawn(`band:${mood}:${calm}:${occasion}:${at.activity}:${at.opening}:${at.helpers}`, () =>
+  return drawn(`band:${mood}:${calm}:${occasion}:${at.activity}:${at.opening}:${at.helpers}:${at.tone}`, () =>
     bandOf(mood, { calm, occasion, work: at }),
   )
 }
@@ -121,11 +122,13 @@ async function stir($: EngineInterface): Promise<void> {
 }
 
 // The tools running on the main loop, by call, each with what the character does while
-// it runs; whether a question waits on the person; when the band last changed work, and
-// the change it waits to make; and the agents out at work, by id.
+// it runs; whether a question waits on the person; when the band last changed work, the
+// change it waits to make, and until when the turn's opening plays, uncut; and the
+// agents out at work, by id.
 const running = new Map<string, Activity>()
 let isAsking = false
 let shownAt = 0
+let openedUntil = 0
 let switching: Timer | undefined
 const agents = new Set<string>()
 let calls = 0
@@ -157,7 +160,7 @@ async function showWork($: EngineInterface): Promise<void> {
     return
   }
   const now = await $.clock.now()
-  const left = shownAt + SHOW_WORK_MS - now
+  const left = Math.max(shownAt + SHOW_WORK_MS, openedUntil) - now
 
   if (left > 0) {
     switching = $.clock.after(left, () => void showWork($))
@@ -168,14 +171,16 @@ async function showWork($: EngineInterface): Promise<void> {
   await update($, work, old => ({ ...old, activity: next, opening: 'switch' as const }))
 }
 
-// A turn begins or ends: the band's next work opens the turn afresh, the helpers kept.
-async function freshWork($: EngineInterface): Promise<void> {
+// A turn begins or ends: the band's next work opens the turn afresh, met by how its
+// prompt sounds, the helpers kept. No tool's act cuts into the opening.
+async function freshWork($: EngineInterface, tone: Tone = 'none'): Promise<void> {
   running.clear()
   isAsking = false
   switching?.cancel()
   switching = undefined
   shownAt = await $.clock.now()
-  await update($, work, old => ({ ...FRESH_WORK, helpers: old.helpers }))
+  openedUntil = shownAt + openingMsOf(tone)
+  await update($, work, old => ({ ...FRESH_WORK, helpers: old.helpers, tone }))
 }
 
 // The helpers on the band: one for each agent out at work, up to the most drawn.
@@ -246,11 +251,12 @@ export const register: Register = on => {
     return { text: SAID[asked] }
   })
 
-  // The main loop's turns open the work; an agent's turn brings a helper out.
+  // The main loop's turns open the work, met by how the prompt sounds; an agent's turn
+  // brings a helper out.
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       await stir($)
-      await freshWork($)
+      await freshWork($, toneOf(e.text))
       await update($, beat, () => ({ mood: 'working', turnId: e.turnId }))
     } else {
       agents.add(e.agentId)

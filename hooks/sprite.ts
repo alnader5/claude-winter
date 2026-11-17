@@ -157,6 +157,16 @@ export const ARMS = {
     [16, 0, 2, 2],
     [17, -1, 1, 1],
   ],
+  // Scratching its head over a question: the left hand at the side of the hat, rubbing
+  // up and down.
+  scratch1: [
+    [1, 0, 2, 2],
+    [15, 4, 2, 2],
+  ],
+  scratch2: [
+    [1, 1, 2, 2],
+    [15, 4, 2, 2],
+  ],
 } as const satisfies Record<string, readonly Rect[]>
 
 // Waving at whoever has the pointer over the band: the right arm up, then out.
@@ -479,6 +489,45 @@ export const HELPER_LEGS = {
     [5, 4, 1, 1],
   ],
 } as const satisfies Record<string, readonly Rect[]>
+
+// The prompt the person sends, as a paper plane flying nose first to the left: a white
+// wing, edged by its folds so it shows on a snowy page too. Then, caught, unfolded into
+// a note held up to read.
+export const PAPER = '#f7f9fc'
+export const FOLD = '#8aa0b8'
+export const PLANE = {
+  wing: [[3, 1, 3, 1]],
+  fold: [
+    [5, 0, 2, 1],
+    [6, 1, 1, 1],
+    [0, 2, 6, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const NOTE = {
+  paper: [[5, 4, 8, 3]],
+  lines: [
+    [6, 5, 5, 1],
+    [6, 6, 3, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+// Cheeks gone pink under the eyes, for thanks and praise.
+export const BLUSH_PINK = '#f28b98'
+export const BLUSH: readonly Rect[] = [
+  [4, 4, 2, 1],
+  [12, 4, 2, 1],
+]
+
+// A bead of sweat flying off the left of its head, in a hurry.
+export const SWEAT_BLUE = '#7cc4f2'
+export const SWEAT = {
+  drop1: [[1, -1, 1, 1]],
+  drop2: [[0, 0, 1, 2]],
+  drop3: [[-1, 2, 1, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export type Sweat = keyof typeof SWEAT | 'none'
 
 // The snowman, on the grid of the character's own size and standing on the same snow:
 // a top hat, a head with coal eyes and a carrot pointing right, a round body with two

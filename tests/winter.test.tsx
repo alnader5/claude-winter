@@ -17,6 +17,7 @@ import {
   endingOf,
   helperAt,
   isOnIce,
+  openingMsOf,
   pixelsOf,
   printsOf,
   reelOf,
@@ -29,6 +30,7 @@ import type { Frame, Place } from '../hooks/band'
 import { checkColors } from '../hooks/make-colors.js'
 import { sceneOf } from '../hooks/scene'
 import {
+  BLUSH_PINK,
   CARROT,
   KNIT_PINK,
   KNIT_RED,
@@ -37,11 +39,13 @@ import {
   PARTY_PURPLE,
   SPRITE_WIDTH,
   STRIPE,
+  SWEAT_BLUE,
   TICK,
   UNIT,
 } from '../hooks/sprite'
 import { whenOf } from '../hooks/time'
-import { MAX_HELPERS, WORK_ALT, activityOf, type Activity } from '../hooks/work'
+import { toneOf } from '../hooks/tone'
+import { MAX_HELPERS, WORK_ALT, activityOf, type Activity, type Tone } from '../hooks/work'
 
 const GLASS = { blur: 4, opacity: 0.64 }
 
@@ -659,7 +663,7 @@ test('each kind of tool has an act of its own, with its own prop', () => {
 
   for (const activity of ['think', 'edit', 'read', 'run', 'web', 'wait'] as const) {
     for (const opening of ['start', 'switch'] as const) {
-      const { intro, loop } = workingOf({ activity, opening })
+      const { intro, loop } = workingOf({ activity, opening, tone: 'none' })
 
       // A turn's first band says "!"; a switch of tools opens with a puff.
       expect(intro[0]?.say === 'alert' || opening === 'switch').toBe(true)
@@ -668,12 +672,11 @@ test('each kind of tool has an act of its own, with its own prop', () => {
       expect(loop.every(frame => isAt(frame.x, HOME.x) && frame.hop === 0)).toBe(true)
       expectOnTrack(intro, false)
       expectOnTrack(loop, true)
-      expect(bandOf('working', { work: { activity, opening, helpers: 3 } }).length < SVG_LIMIT).toBe(true)
+      expect(bandOf('working', { work: { activity, opening, helpers: 3, tone: 'urgent' } }).length < SVG_LIMIT).toBe(true)
     }
   }
 
-  const loopOf = (activity: Activity) =>
-    workingOf({ activity, opening: 'switch' }).loop
+  const loopOf = (activity: Activity) => workingOf({ activity, opening: 'switch', tone: 'plain' }).loop
 
   // Reading: the book open all along, a page turned now and then.
   expect(loopOf('read').every(frame => frame.book !== 'none')).toBe(true)
@@ -696,10 +699,12 @@ test('each kind of tool has an act of its own, with its own prop', () => {
   expect(loopOf('think').every(frame => frame.laptop === 'open')).toBe(true)
 
   // The spark whirls fastest as code flies to it, and holds still while a question waits.
-  expect(bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0 } })).toContain(
+  expect(bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0, tone: 'plain' } })).toContain(
     'animation:spark-whirl 1.6s linear infinite',
   )
-  expect(bandOf('working', { work: { activity: 'wait', opening: 'switch', helpers: 0 } })).not.toContain('spark-whirl')
+  expect(bandOf('working', { work: { activity: 'wait', opening: 'switch', helpers: 0, tone: 'plain' } })).not.toContain(
+    'spark-whirl',
+  )
 
   // The helpers pace at the far end, clear of the snowman and on the stage, at any width.
   for (const width of WIDTHS) {
@@ -733,11 +738,13 @@ test('the band acts out the tool that runs, each a moment at least, and a questi
   await $.turn.start({ text: 'look into it', turnId: 'work' })
   expect(await alt()).toBe(WORK_ALT.think)
 
-  // A file read, once the turn's opening has had its moment.
+  // A file read, once the turn's opening has played: the prompt's plane caught and read.
   const reading = $.tool.call({ tool: 'Read', file_path: '/notes.md', tool_use_id: 'read-1' })
 
   expect(await alt()).toBe(WORK_ALT.think)
-  await clock.advance(1500)
+  await clock.advance(openingMsOf('plain') - 1)
+  expect(await alt()).toBe(WORK_ALT.think)
+  await clock.advance(1)
   expect(await alt()).toBe(WORK_ALT.read)
 
   // A quick edit right after: the book stays its moment, then the laptop and the code.
@@ -816,6 +823,172 @@ test('helpers come out with the agents Claude sends, and go back as each one end
   }
   expect(await helpersDrawn()).toBe(3)
   await ui.unmount()
+})
+
+test('a prompt is read for thanks, a hurry or a question, in English and in Arabic', () => {
+  expect(toneOf('')).toBe('none')
+  expect(toneOf('  \n ')).toBe('none')
+  expect(toneOf('<command-name>/review</command-name>')).toBe('plain')
+  expect(toneOf('fix the login page')).toBe('plain')
+  expect(toneOf('لم يمتد')).toBe('plain')
+  expect(toneOf('Write a great README for the project')).toBe('plain')
+  expect(toneOf('/winter calm')).toBe('plain')
+  // Thanks, or praise as a whole prompt; thanks anywhere in a longer one.
+  expect(toneOf('Thanks!')).toBe('thanks')
+  expect(toneOf('great job')).toBe('thanks')
+  expect(toneOf('شكراً جزيلاً!')).toBe('thanks')
+  expect(toneOf('ممتاز جداً')).toBe('thanks')
+  expect(toneOf('يعطيك العافية')).toBe('thanks')
+  expect(toneOf('Write the README for the project, thank you')).toBe('thanks')
+  // A question, by its mark or by how it opens.
+  expect(toneOf('why does the build fail')).toBe('question')
+  expect(toneOf('كيف أثبت المود')).toBe('question')
+  expect(toneOf('ممتاز جدا جدا ، هل من افكار اخرى ؟')).toBe('question')
+  expect(toneOf('is this right? :)')).toBe('question')
+  // A hurry, before all.
+  expect(toneOf('قم بها حالاً')).toBe('urgent')
+  expect(toneOf('عاجل: الخادم متوقف؟')).toBe('urgent')
+  expect(toneOf('please fix this ASAP, thanks')).toBe('urgent')
+})
+
+test('a prompt comes up as a paper plane, and the character meets it by how it sounds', () => {
+  const opened: Partial<Record<Tone, number>> = {}
+
+  for (const tone of ['none', 'plain', 'thanks', 'urgent', 'question'] as const) {
+    const { intro, loop } = workingOf({ activity: 'think', opening: 'start', tone })
+    const flight = intro.filter(frame => frame.plane !== null)
+    const [first] = flight
+    const last = flight[flight.length - 1]
+
+    expectOnTrack(intro, false)
+    expectOnTrack(loop, true)
+    opened[tone] = openingMsOf(tone)
+    expect(openingMsOf(tone)).toBe(Math.round((intro.length / 12 / (tone === 'urgent' ? 1.5 : 1)) * 1000))
+    // The plane and its note are gone by the time the work is under way.
+    expect(loop.every(frame => frame.plane === null && !frame.note)).toBe(true)
+
+    if (tone === 'none') {
+      // Nothing typed: no plane, just "!".
+      expect(flight).toEqual([])
+      expect(intro[0]?.say).toBe('alert')
+      continue
+    }
+    // Up out of the prompt box under the band, over the spark, and down onto the hands.
+    expect(intro.indexOf(first ?? HOME)).toBe(0)
+    expect((first?.plane?.y ?? 0) + 3 * UNIT > BAND_HEIGHT).toBe(true)
+    expect(
+      flight.every(frame => (frame.plane?.x ?? 0) < 40 || (frame.plane?.x ?? 0) > 64 || (frame.plane?.y ?? 99) + 3 * UNIT <= 16),
+    ).toBe(true)
+    expect(last?.arms).toBe('up')
+    expect((last?.plane?.x ?? 99) < HOME.x.px + SPRITE_WIDTH).toBe(true)
+    // Unfolded and read.
+    const reading = intro.filter(frame => frame.note)
+
+    expect(reading.length > 0 && reading.every(frame => frame.eyes === 'down' && frame.arms === 'hold')).toBe(true)
+
+    // Met by how it sounds.
+    const met = intro.slice(intro.lastIndexOf(reading[reading.length - 1] ?? HOME) + 1)
+
+    if (tone === 'thanks') {
+      expect(met.some(frame => frame.blush && frame.eyes === 'happy' && frame.say === 'love')).toBe(true)
+      // A dance from side to side, its feet on the ground.
+      expect(new Set(met.map(frame => pixelsOf(frame.x, REFERENCE_WIDTH))).size).toBe(3)
+      expect(met.some(frame => frame.say === 'alert')).toBe(false)
+    } else if (tone === 'question') {
+      expect(met.some(frame => frame.arms === 'scratch1' && frame.say === 'ask')).toBe(true)
+      expect(met.some(frame => frame.arms === 'scratch2')).toBe(true)
+      expect(met.findIndex(frame => frame.say === 'alert') > met.findIndex(frame => frame.say === 'ask')).toBe(true)
+    } else if (tone === 'urgent') {
+      expect(met.some(frame => frame.say === 'alert' && frame.sweat !== 'none')).toBe(true)
+      // The sweat keeps coming while it works.
+      expect(loop.filter(frame => frame.sweat !== 'none').length >= 3).toBe(true)
+    } else {
+      expect(met[0]?.say).toBe('alert')
+    }
+    if (tone !== 'urgent') {
+      expect(loop.every(frame => frame.sweat === 'none' && !frame.blush)).toBe(true)
+    }
+  }
+
+  // The longer the welcome, the longer the opening; a hurry is quickest of the typed.
+  expect((opened.none ?? 0) < (opened.urgent ?? 0)).toBe(true)
+  expect((opened.urgent ?? 0) < (opened.plain ?? 0)).toBe(true)
+  expect((opened.plain ?? 0) < (opened.thanks ?? 0)).toBe(true)
+
+  // In a hurry the band runs faster, and the spark whirls faster too.
+  const hurried = bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0, tone: 'urgent' } })
+  const { loop } = workingOf({ activity: 'edit', opening: 'switch', tone: 'urgent' })
+
+  expect(hurried).toContain(`,${Number((loop.length / 12 / 1.5).toFixed(3))}s;`)
+  expect(hurried).toContain('animation:spark-whirl 1.067s linear infinite')
+  expect(hurried).toContain(SWEAT_BLUE)
+})
+
+test('a quick tool waits for the plane to be read, and a hurry shows all through the turn', async ($, on) => {
+  const clock = mock.clock(on, { now: NOON })
+  const gates: (() => void)[] = []
+
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('tool.call', () => new Promise(done => gates.push(() => done({ result: 'done' }))))
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface: 'desktop' })
+  const svg = async () => (await ui.find({ type: 'Svg' }))?.props
+  const end = async (run: Promise<unknown>) => {
+    gates.shift()?.()
+    await run
+  }
+
+  // Thanks: the dance plays whole before the book comes out.
+  await $.turn.start({ text: 'شكراً جزيلاً', turnId: 'thanks' })
+  expect(String((await svg())?.source)).toContain(BLUSH_PINK)
+
+  const reading = $.tool.call({ tool: 'Read', file_path: '/notes.md', tool_use_id: 'read-1' })
+
+  await clock.advance(1500)
+  expect((await svg())?.alt).toBe(WORK_ALT.think)
+  await clock.advance(openingMsOf('thanks') - 1500)
+  expect((await svg())?.alt).toBe(WORK_ALT.read)
+  await end(reading)
+  await $.turn.complete({ answer: 'ok', durationMs: 900, isAborted: false, turnId: 'thanks', reason: 'answer' })
+
+  // A hurry: said in words, and kept through a switch of tools.
+  await $.turn.start({ text: 'عاجل! الخادم متوقف', turnId: 'hurry' })
+  expect((await svg())?.alt).toBe(`${WORK_ALT.think}, in a hurry`)
+
+  const running = $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'run-1' })
+
+  // The opening, or each act's least moment if that is longer.
+  await clock.advance(Math.max(1500, openingMsOf('urgent')))
+  expect((await svg())?.alt).toBe(`${WORK_ALT.run}, in a hurry`)
+  expect(String((await svg())?.source)).toContain(SWEAT_BLUE)
+  await end(running)
+  await ui.unmount()
+})
+
+test('the eyes follow the pointer to either side of the character', () => {
+  const band = bandOf('idle')
+
+  // A side of the band under the pointer turns the eyes that way, out to either end.
+  expect(band).toContain('class="zone zone-l"')
+  expect(band).toContain('class="zone zone-r"')
+  expect(band).toContain('svg:has(.zone-l:hover) .gaze-l,svg:has(.zone-r:hover) .gaze-r{opacity:1}')
+  expect(band).toContain('.zone{pointer-events:all}')
+
+  // The zones ride with the character, under its own pixels, and reach both ends of
+  // the widest band from wherever it stands.
+  const left = band.match(/class="zone zone-l" x="(-?\d+)" y="(-?\d+)" width="(\d+)" height="(\d+)"/)
+  const right = band.match(/class="zone zone-r" x="(-?\d+)" y="(-?\d+)" width="(\d+)" height="(\d+)"/)
+
+  expect(Number(left?.[1]) <= -MAX_WIDTH).toBe(true)
+  expect(Number(left?.[1]) + Number(left?.[3])).toBe(8)
+  expect(Number(right?.[1])).toBe(28)
+  expect(Number(right?.[1]) + Number(right?.[3]) >= MAX_WIDTH).toBe(true)
+  expect(Number(left?.[4])).toBe(BAND_HEIGHT)
+  expect(band.indexOf('class="zone zone-l"') < band.indexOf('class="poke"')).toBe(true)
+
+  // Calm, nothing answers the pointer.
+  expect(bandOf('idle', { calm: true })).not.toContain('zone')
 })
 
 test('the band yields to a survey, and the terminal draws none', async $ => {

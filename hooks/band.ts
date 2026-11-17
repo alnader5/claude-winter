@@ -12,9 +12,14 @@
 //   home under the jump, shedding sparks. Puzzled ("?"), the character walks home: it
 //   slides across the ice with its arms out, waves to the snowman, who waves back, and
 //   greets the spark with a heart. Its footprints melt slowly in the snow.
-// - working, while Claude works: "!", a laptop comes up out of the snow, and the
-//   character types, stops to think ("..."), glances at the spark and types on; a robin
-//   comes down onto its hat for a while. The spark winds up into a whirl and glows.
+// - working, while Claude works: the prompt comes up from the box below as a paper
+//   plane, which the character catches and reads. It meets thanks with a blush and a
+//   dance, a hurry with a start and a bead of sweat, a question by scratching its head
+//   ("?"). Then ("!") it acts out what Claude is busy with: typing at a laptop and
+//   stopping to think ("..."), a robin on its hat now and then; code flying off to the
+//   spark; a book; a terminal's lever; binoculars; a hand up for a question to the
+//   person. Helpers pace at the far end for the agents out, and the spark winds up into
+//   a whirl and glows.
 // - joy, puzzled and closing, as a turn ends with an answer, without one, or stopped:
 //   the character folds the laptop away and cheers with a tick, wonders ("?") or just
 //   stands, while the spark spins down. Then the chase starts over.
@@ -29,6 +34,8 @@
 import {
   ARMS,
   BEAK,
+  BLUSH,
+  BLUSH_PINK,
   BODY,
   BOOK,
   BOOK_BLUE,
@@ -47,6 +54,7 @@ import {
   FACE,
   FLAKE,
   FLAKE_BLUE,
+  FOLD,
   GLYPHS,
   HAT,
   HEART,
@@ -68,12 +76,15 @@ import {
   LID,
   LID_GRAY,
   LOGO,
+  NOTE,
   ORANGE,
   PAGE,
+  PAPER,
   PARCEL,
   PARTY_GOLD,
   PARTY_HAT,
   PARTY_PURPLE,
+  PLANE,
   ROBIN_BACK,
   ROBIN_BEAK,
   ROBIN_BREAST,
@@ -100,6 +111,8 @@ import {
   SPRITE_WIDTH,
   STICK,
   STRIPE,
+  SWEAT,
+  SWEAT_BLUE,
   TERMINAL_GREEN,
   TICK,
   UNIT,
@@ -107,10 +120,10 @@ import {
   balloonOf,
   pathOf,
 } from './sprite'
-import type { Book, Box, Glyph, Laptop, Rect, Scope, Screen } from './sprite'
+import type { Book, Box, Glyph, Laptop, Rect, Scope, Screen, Sweat } from './sprite'
 import type { Occasion } from './time'
 import { FRESH_WORK, MAX_HELPERS } from './work'
-import type { Activity, Work } from './work'
+import type { Activity, Tone, Work } from './work'
 
 export const BAND_HEIGHT = 36
 
@@ -234,6 +247,9 @@ type Pal = keyof typeof SNOWMAN_ARMS
 // Something with a place of its own on the band, in CSS pixels, and a pose.
 type Placed<Pose extends string> = { x: number; y: number; pose: Pose }
 
+// The paper plane's one pose, gliding.
+const PLANE_POSES = { glide: PLANE.wing } as const
+
 export type Frame = {
   // The sprite's left edge along the track.
   x: Place
@@ -253,6 +269,13 @@ export type Frame = {
   screen: Screen
   scope: Scope
   glyph: Glyph
+  // The prompt as a paper plane on its way to the character, where it is when it is
+  // there (near home, so in plain pixels); then the note it unfolds into, held up.
+  plane: Placed<keyof typeof PLANE_POSES> | null
+  note: boolean
+  // Pink cheeks, and a bead of sweat flying off its head.
+  blush: boolean
+  sweat: Sweat
   // The scarf's end: hanging still, or streaming behind as the character moves.
   scarf: Scarf
   // A puff of breath in the cold.
@@ -283,6 +306,10 @@ export const HOME: Frame = {
   screen: 'none',
   scope: 'none',
   glyph: 'none',
+  plane: null,
+  note: false,
+  blush: false,
+  sweat: 'none',
   scarf: 'still',
   breath: 'none',
   pal: 'rest',
@@ -792,22 +819,127 @@ const WORK_AT: Readonly<Record<Activity, (script: Script) => void>> = {
   wait: waitAt,
 }
 
+// The way the prompt's paper plane comes, its corner a frame at a time, in CSS pixels:
+// up out of the prompt box under the band, over the spark, and down onto the
+// character's raised right hand.
+const PLANE_PATH: readonly (readonly [number, number])[] = [
+  [100, 34],
+  [93, 27],
+  [86, 21],
+  [79, 16],
+  [71, 12],
+  [63, 9],
+  [55, 8],
+  [48, 8],
+  [42, 9],
+  [37, 10],
+  [33, 12],
+]
+
+// A prompt sent: the paper plane flies in, and the character watches it come, puts its
+// hands up and catches it, then unfolds it and reads it.
+function catchAt({ put }: Script): void {
+  PLANE_PATH.forEach(([x, y], index) => {
+    const isNear = index >= PLANE_PATH.length - 3
+
+    put(1, {
+      plane: { x, y, pose: 'glide' },
+      eyes: index < 2 ? 'ahead' : isNear ? 'up' : 'right',
+      arms: isNear ? 'up' : 'rest',
+    })
+  })
+  put(4, { plane: null, note: true, arms: 'hold', eyes: 'down' })
+  put(0, { note: false, arms: 'rest', eyes: 'ahead' })
+}
+
+// "!": there is work.
+function alertAt({ put }: Script): void {
+  put(1, { crouch: true, legs: 'tuck', say: 'alert' })
+  put(4, { crouch: false, legs: 'stand' })
+  put(0, { say: 'none' })
+}
+
+// Thanks or praise: it blushes, a heart over its head, and dances a little, stepping
+// from side to side with an arm up. Its feet stay on the ground, so the heart stays on
+// the band.
+function beamAt({ put }: Script): void {
+  put(2, { blush: true, eyes: 'happy', say: 'love' })
+
+  for (let step = 0; step < 2; step++) {
+    put(2, { x: shift(HOME.x, UNIT), legs: 'a', arms: 'up' })
+    put(2, { x: HOME.x, legs: 'stand', arms: 'rest' })
+    put(2, { x: shift(HOME.x, -UNIT), legs: 'b', arms: 'up' })
+    put(2, { x: HOME.x, legs: 'stand', arms: 'rest' })
+  }
+  put(3, { say: 'none' })
+  put(1, { eyes: 'ahead', blush: false })
+}
+
+// A question: it scratches its head under a "?", then has it ("!").
+function wonderAt(script: Script): void {
+  for (let rub = 0; rub < 3; rub++) {
+    script.put(2, { arms: 'scratch1', eyes: 'up', say: 'ask' })
+    script.put(2, { arms: 'scratch2' })
+  }
+  script.put(0, { arms: 'rest', eyes: 'ahead', say: 'none' })
+  alertAt(script)
+}
+
+// A hurry: "!", a bead of sweat flying off its head, and a jump into the work.
+function hurryAt({ put }: Script): void {
+  put(1, { crouch: true, legs: 'tuck', say: 'alert', sweat: 'drop1' })
+  put(2, { crouch: false, legs: 'stand', sweat: 'drop2' })
+  put(0, { say: 'none' })
+  put(2, { hop: 4, arms: 'up', sweat: 'drop3' })
+  put(1, { hop: 0, arms: 'rest', sweat: 'none', crouch: true, legs: 'tuck' })
+  put(0, { crouch: false, legs: 'stand' })
+}
+
+// How the character meets the prompt it has read, by how it sounds.
+const MEET: Readonly<Record<Exclude<Tone, 'none'>, (script: Script) => void>> = {
+  plain: alertAt,
+  thanks: beamAt,
+  urgent: hurryAt,
+  question: wonderAt,
+}
+
+// In a hurry a bead of sweat flies off its head a little more than once a second.
+const SWEAT_EVERY = 14
+
+function sweating(frames: readonly Frame[]): Frame[] {
+  return frames.map((frame, index) => {
+    const at = index % SWEAT_EVERY
+    const sweat: Sweat = at < 2 ? 'drop1' : at < 4 ? 'drop2' : at < 5 ? 'drop3' : 'none'
+
+    return { ...frame, sweat }
+  })
+}
+
+// In a hurry the whole work band runs this much faster.
+export const HURRY = 1.5
+
 /**
  * At work, at home beside the spark, acting out what Claude is busy with: the prop for
- * it comes out, then its loop runs. A turn's first work band opens with "!"; one for a
- * switch of tools opens with a puff, the last work's prop gone in it.
+ * it comes out, then its loop runs. A turn's first work band opens with the prompt:
+ * the paper plane caught and read, and met by how it sounds; or, with nothing typed,
+ * with "!". One for a switch of tools opens with a puff, the last work's prop gone in
+ * it. In a hurry the sweat keeps coming.
  */
-export function workingOf({ activity, opening }: Pick<Work, 'activity' | 'opening'> = FRESH_WORK): Reel {
+export function workingOf({
+  activity,
+  opening,
+  tone,
+}: Pick<Work, 'activity' | 'opening' | 'tone'> = FRESH_WORK): Reel {
   const intro = scriptFrom(HOME)
 
-  if (opening === 'start') {
-    // "!": there is work.
-    intro.put(1, { crouch: true, legs: 'tuck', say: 'alert' })
-    intro.put(4, { crouch: false, legs: 'stand' })
-    intro.put(0, { say: 'none' })
-  } else {
+  if (opening === 'switch') {
     intro.put(2, { laptop: 'poof' })
     intro.put(0, { laptop: 'none' })
+  } else if (tone === 'none') {
+    alertAt(intro)
+  } else {
+    catchAt(intro)
+    MEET[tone](intro)
   }
   setOut(intro, activity)
 
@@ -815,7 +947,20 @@ export function workingOf({ activity, opening }: Pick<Work, 'activity' | 'openin
 
   WORK_AT[activity](loop)
 
-  return { intro: intro.frames, loop: loop.frames, poster: loop.frames[0] ?? HOME }
+  const frames = tone === 'urgent' ? sweating(loop.frames) : loop.frames
+
+  return { intro: intro.frames, loop: frames, poster: frames[0] ?? HOME }
+}
+
+/**
+ * How long a turn's opening plays for a prompt of `tone`, in milliseconds: the plane
+ * and how the character meets it, and the prop coming out. Nothing of the tools that
+ * run should cut into it.
+ */
+export function openingMsOf(tone: Tone): number {
+  const { intro } = workingOf({ activity: 'think', opening: 'start', tone })
+
+  return Math.round((intro.length / FPS / (tone === 'urgent' ? HURRY : 1)) * 1000)
 }
 
 /**
@@ -1177,10 +1322,10 @@ function rollCssOf({ frames, spark }: Story): string {
 // and it spins down to rest, hopping with the character for joy, and the chase's
 // moves wait for the intro to end. Asleep, it rests at home. Waiting on the person, it
 // holds still and glows; as the work switches tools, it whirls on at once.
-function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work): string {
+function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1): string {
   const home = `.spark-x{${varsOf(story.spark.home)};transform:translateX(${SMOOTH})`
   const loop = secondsOf(story.frames.length)
-  const intro = secondsOf(reel.intro.length)
+  const intro = secondsOf(reel.intro.length / tempo)
   const tilt = smoothOf(
     'spark-tilt',
     story.frames.map(frame => `transform:rotate(${frame.tilt}deg)`),
@@ -1201,7 +1346,7 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work): string {
   }
 
   if (mood === 'working') {
-    const whirl = WHIRL_SECONDS[work.activity]
+    const whirl = Number((WHIRL_SECONDS[work.activity] / tempo).toFixed(3))
     const pulse = '@keyframes glow{0%,100%{opacity:0.5;transform:scale(0.9)}50%{opacity:0.85;transform:scale(1.05)}}'
     const spin = '@keyframes spark-whirl{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}'
 
@@ -1218,7 +1363,7 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work): string {
       ].join('\n')
     }
     // Speeding up evenly over the intro, it turns half as far as the whirl would.
-    const windUp = ((360 / whirl) * (reel.intro.length / FPS)) / 2
+    const windUp = ((360 / whirl) * (reel.intro.length / FPS / tempo)) / 2
 
     return [
       `${home}}`,
@@ -1380,15 +1525,25 @@ const MOVING =
 
 const STILL = `:is(${MOVING}){animation:none!important}`
 
-// The pointer over the band stops it, where a pointer can hover: the character turns to
-// look at whoever it is and waves. A press on the band makes it jump with a heart over
-// its head, and the heart and its happy eyes stay a moment after the press.
+// Where the pointer turns the character's eyes: left of this column of the sprite it
+// looks left, right of the other it looks right, and between them, over its face, at
+// whoever it is.
+const GAZE_LEFT = 4 * UNIT
+const GAZE_RIGHT = 14 * UNIT
+
+// The pointer over the band stops it, where a pointer can hover: the character turns
+// its eyes to the pointer, to one side of it or the other or right at whoever it is,
+// and waves. A press on the band makes it jump with a heart over its head, and the
+// heart and its happy eyes stay a moment after the press.
 const INTERACTIVE = [
-  '.gaze,.wave-a,.wave-b,.poke-heart,.poke-face{opacity:0}',
+  '.gaze,.gaze-l,.gaze-r,.wave-a,.wave-b,.poke-heart,.poke-face{opacity:0}',
+  '.zone{pointer-events:all}',
   '@media (hover: hover){' +
     `svg:hover :is(${MOVING}){animation-play-state:paused}` +
     'svg:hover .m:is([class*="eyes-"],[class*="arms-"],[class*="say-"]){opacity:0!important}' +
     'svg:hover .gaze{opacity:1}' +
+    'svg:has(.zone-l:hover) .gaze,svg:has(.zone-r:hover) .gaze{opacity:0}' +
+    'svg:has(.zone-l:hover) .gaze-l,svg:has(.zone-r:hover) .gaze-r{opacity:1}' +
     'svg:hover .wave-a{animation:wave-a 0.6s step-end infinite}' +
     'svg:hover .wave-b{animation:wave-b 0.6s step-end infinite}}',
   '@keyframes wave-a{0%{opacity:1}50%{opacity:0}}',
@@ -1430,15 +1585,17 @@ export function bandOf(
   const chaseFrames = story.frames.length
   const chaseLoop = secondsOf(chaseFrames)
   const introSeconds = intro.length / FPS
+  // In a hurry the work runs faster.
+  const tempo = mood === 'working' && work.tone === 'urgent' ? HURRY : 1
 
   // With an intro, each part runs two animations: the intro once, holding its last
   // frame, then the loop for good from the moment the intro ends.
   const timing =
     intro.length > 0
-      ? `.m{animation-duration:${secondsOf(intro.length)},${secondsOf(loop.length)};` +
-        `animation-delay:0s,${secondsOf(intro.length)};animation-iteration-count:1,infinite;` +
+      ? `.m{animation-duration:${secondsOf(intro.length / tempo)},${secondsOf(loop.length / tempo)};` +
+        `animation-delay:0s,${secondsOf(intro.length / tempo)};animation-iteration-count:1,infinite;` +
         'animation-fill-mode:forwards,none;animation-timing-function:step-end}'
-      : `.m{animation-duration:${secondsOf(loop.length)};animation-timing-function:step-end;animation-iteration-count:infinite}`
+      : `.m{animation-duration:${secondsOf(loop.length / tempo)};animation-timing-function:step-end;animation-iteration-count:infinite}`
 
   const shadows = layerOf(
     'shadow',
@@ -1503,6 +1660,20 @@ export function bandOf(
     layerOf('lens', SCOPE_LENS, frame => frame.scope, reel, SCOPE_LENS_BLUE),
   ]
   const helpers = mood === 'working' ? helpersOf(work.helpers) : { svg: '', css: '' }
+  // The prompt's paper plane and the note it unfolds into; pink cheeks; sweat.
+  const planePose = (frame: Frame) => frame.plane?.pose ?? 'none'
+  const plane = [
+    layerOf('plane', PLANE_POSES, planePose, reel, PAPER),
+    layerOf('fold', { glide: PLANE.fold }, planePose, reel, FOLD),
+  ]
+  const isNote = (frame: Frame) => (frame.note ? 'on' : 'none')
+  const note = [
+    layerOf('note', { on: NOTE.paper }, isNote, reel, PAPER),
+    layerOf('note-lines', { on: NOTE.lines }, isNote, reel, FOLD),
+  ]
+  const blush = layerOf('blush', { on: BLUSH }, frame => (frame.blush ? 'on' : 'none'), reel, BLUSH_PINK)
+  const sweat = layerOf('sweat', SWEAT, frame => frame.sweat, reel, SWEAT_BLUE)
+  const hasPlane = frames.some(frame => frame.plane !== null)
   const pal = layerOf('pal', SNOWMAN_ARMS, frame => frame.pal, reel, STICK)
   const flake = layerOf('flake', FLAKE, frame => frame.flake?.pose ?? 'none', reel, FLAKE_BLUE)
   const robinPose = (frame: Frame) => frame.robin?.pose ?? 'none'
@@ -1564,6 +1735,10 @@ export function bandOf(
       ? `.robin-at{${placeOf(poster.robin)};animation-name:${namesOf('robin-at', reel)}}` +
         tracksOf('robin-at', reel, frame => placeOf(frame.robin))
       : '',
+    hasPlane
+      ? `.plane-at{${placeOf(poster.plane)};animation-name:${namesOf('plane-at', reel)}}` +
+        tracksOf('plane-at', reel, frame => placeOf(frame.plane))
+      : '',
     `.snowman{transform:translate(${cssOf(TRACK.snowman)},${TOP}px)}`,
     `.glint-at{transform:translateX(${cssOf(shift(TRACK.iceStart, 4 * UNIT))})}`,
     shadows.css,
@@ -1585,8 +1760,12 @@ export function bandOf(
     ...robin.map(layer => layer.css),
     ...props.map(layer => layer.css),
     ...scope.map(layer => layer.css),
+    ...plane.map(layer => layer.css),
+    ...note.map(layer => layer.css),
+    blush.css,
+    sweat.css,
     helpers.css,
-    sparkCssOf(mood, reel, story, work),
+    sparkCssOf(mood, reel, story, work, tempo),
     // Every footprint and shed spark shares one fade on the chase's clock.
     `.print{opacity:0;animation:melt ${chaseLoop} linear infinite}`,
     `@keyframes melt{0%{opacity:${PRINT_DEPTH}}${percent(MELT, chaseFrames)}{opacity:0}100%{opacity:0}}`,
@@ -1606,10 +1785,17 @@ export function bandOf(
   // What answers the pointer: eyes that look out, a waving arm, and for a press a happy
   // face and a heart.
   const answer = calm
-    ? { body: '', over: '' }
+    ? { zones: '', body: '', over: '' }
     : {
+        // Wherever the pointer is beside the character, out to either end of the band,
+        // and over the face between them: these move with it, under its own pixels.
+        zones:
+          `<rect class="zone zone-l" x="${-MAX_WIDTH - 2 * GAZE_LEFT}" y="${-TOP}" width="${MAX_WIDTH + 3 * GAZE_LEFT}" height="${BAND_HEIGHT}" fill="none"/>` +
+          `<rect class="zone zone-r" x="${GAZE_RIGHT}" y="${-TOP}" width="${MAX_WIDTH + GAZE_RIGHT}" height="${BAND_HEIGHT}" fill="none"/>`,
         body:
           `<path class="gaze" fill="${EYE}" d="${pathOf(EYES.ahead)}"/>` +
+          `<path class="gaze-l" fill="${EYE}" d="${pathOf(EYES.left)}"/>` +
+          `<path class="gaze-r" fill="${EYE}" d="${pathOf(EYES.right)}"/>` +
           `<path class="wave-a" fill="${ORANGE}" d="${pathOf(WAVE.a)}"/>` +
           `<path class="wave-b" fill="${ORANGE}" d="${pathOf(WAVE.b)}"/>` +
           `<g class="poke-face"><path fill="${ORANGE}" d="${pathOf(FACE)}"/><path fill="${EYE}" d="${pathOf(EYES.happy)}"/></g>`,
@@ -1658,7 +1844,7 @@ ${snowman}${lantern.svg}
 ${embers}
 <g class="spark-x"><g class="spark-hop"><g transform="translate(${SPARK_BOX / 2} ${SPARK_CENTER_Y})">${glow}<g class="spark-tilt"><g class="spark-wind"><g class="spark-spin">${raysOf()}</g></g></g></g></g></g>
 ${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}${confetti.svg}${helpers.svg}
-<g class="m walker px"><g class="poke"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${scope.map(layer => layer.svg).join('')}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${snores.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}${props.map(layer => layer.svg).join('')}</g>
-${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}
+<g class="m walker px">${answer.zones}<g class="poke"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${blush.svg}${sweat.svg}${scope.map(layer => layer.svg).join('')}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${snores.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}${props.map(layer => layer.svg).join('')}${note.map(layer => layer.svg).join('')}</g>
+${hasPlane ? `<g class="m plane-at px">${plane.map(layer => layer.svg).join('')}</g>` : ''}${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}
 </svg>`
 }
