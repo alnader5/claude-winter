@@ -167,7 +167,19 @@ const between = (from: Place, to: Place, t: number): Place =>
  */
 export const pixelsOf = (place: Place, width: number) => place.px + place.of * width
 
-// A place as CSS, on the sprite's grid of 2 pixels.
+// A place as the two numbers its moves animate: `--of`, its share of the stage's width,
+// and `--px`, its pixels. No keyframe holds the width itself, so the browser never
+// keeps a position worked out for a width the frame has since left.
+function varsOf(place: Place): string {
+  return `--of:${Number(place.of.toFixed(5))};--px:${Number(place.px.toFixed(2))}px`
+}
+
+// Where the two numbers put a thing, worked out from the frame's width as it is now:
+// the character on the sprite's grid of 2 pixels, the spark smoothly.
+const ON_GRID = `round(nearest,calc(var(--of) * var(--w) + var(--px)),${UNIT}px)`
+const SMOOTH = 'calc(var(--of) * var(--w) + var(--px))'
+
+// A place as CSS, on the sprite's grid of 2 pixels: for what stands still.
 function cssOf(place: Place): string {
   if (Math.abs(place.of) < 1e-9) {
     return `${UNIT * Math.round(place.px / UNIT)}px`
@@ -874,7 +886,7 @@ function tracksOf(name: string, reel: Reel, value: (frame: Frame) => string): st
 function walkerOf(reel: Reel): string {
   const [first] = reel.loop
   const start = first?.x ?? HOME.x
-  const style = (place: Place) => `transform:translate(${cssOf(place)},${TOP}px)`
+  const style = (place: Place) => varsOf(place)
   const loop = glidesOf(
     'walker',
     reel.loop.map(frame => frame.x),
@@ -955,7 +967,7 @@ function rollCssOf({ frames, spark }: Story): string {
   }
 
   return (
-    rollOf('spark-x', isFar => `transform:translateX(${cssOf(isFar ? spark.far : spark.home)})`) +
+    rollOf('spark-x', isFar => varsOf(isFar ? spark.far : spark.home)) +
     rollOf('spark-spin', isFar => `transform:rotate(${isFar ? turn : 0}deg)`)
   )
 }
@@ -965,7 +977,7 @@ function rollCssOf({ frames, spark }: Story): string {
 // and it spins down to rest, hopping with the character for joy, and the chase's
 // moves wait for the intro to end. Asleep, it rests at home.
 function sparkCssOf(mood: Mood, reel: Reel, story: Story): string {
-  const home = `.spark-x{transform:translateX(${cssOf(story.spark.home)})`
+  const home = `.spark-x{${varsOf(story.spark.home)};transform:translateX(${SMOOTH})`
   const loop = secondsOf(story.frames.length)
   const intro = secondsOf(reel.intro.length)
   const tilt = smoothOf(
@@ -1242,11 +1254,14 @@ export function bandOf(
   const css = [
     // The stage: the frame's own width, between the two bounds, read by every place
     // along the track; the drawing as wide as the stage and as tall as the band.
+    `@property --w{syntax:'<length>';inherits:true;initial-value:${REFERENCE_WIDTH}px}`,
+    "@property --of{syntax:'<number>';inherits:false;initial-value:0}",
+    "@property --px{syntax:'<length>';inherits:false;initial-value:0px}",
     `svg{--w:max(${MIN_WIDTH}px,min(100vw,${MAX_WIDTH}px));width:var(--w);height:${BAND_HEIGHT}px;display:block;overflow:hidden}`,
     timing,
     '.hidden{opacity:0}',
     '.px,.print,.ember{shape-rendering:crispEdges}',
-    `.walker{transform:translate(${cssOf(poster.x)},${TOP}px);animation-name:${namesOf('walker', reel)}}`,
+    `.walker{${varsOf(poster.x)};transform:translate(${ON_GRID},${TOP}px);animation-name:${namesOf('walker', reel)}}`,
     `.jumper{transform:translateY(${-poster.hop}px);animation-name:${namesOf('jumper', reel)}}`,
     `.body{transform:translateY(${poster.crouch ? UNIT : 0}px);animation-name:${namesOf('body', reel)}}`,
     walkerOf(reel),

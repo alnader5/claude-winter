@@ -161,8 +161,11 @@ test("Claude's pixel character and the spark share a band as wide as its slot", 
     // The sprite's pixels stay square and sharp, and its limbs move a frame at a time.
     expect(source).toContain('shape-rendering:crispEdges')
     expect(source).toContain('animation-timing-function:step-end')
-    // The spark rolls to the far end of the stage, whatever its width, on the grid.
-    expect(source).toContain('translateX(round(nearest,calc(1 * var(--w) - 24px),2px))')
+    // The spark rolls to the far end of the stage, whatever its width: its keyframes move
+    // a share of the width and some pixels, and a rule turns them into a place live.
+    expect(source).toContain('--of:1;--px:-24px')
+    expect(source).toContain('.spark-x{--of:0;--px:40px;transform:translateX(calc(var(--of) * var(--w) + var(--px)))')
+    expect(source).toContain("@property --of{syntax:'<number>';inherits:false;initial-value:0}")
     // Dressed for the cold, beside a snowman.
     expect(source).toContain(KNIT_RED)
     expect(source).toContain(STRIPE)
@@ -177,6 +180,17 @@ test("Claude's pixel character and the spark share a band as wide as its slot", 
 
   // One drawing serves a desktop and a phone alike.
   expect(sources[0]).toBe(sources[1])
+})
+
+test('no keyframe holds the width, so the moves follow the frame as it widens', () => {
+  for (const mood of ['idle', 'working', 'joy', 'puzzled', 'closing', 'sleep'] as const) {
+    const source = bandOf(mood)
+    const keyframes = source.match(/@keyframes [^{]+\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g) ?? []
+
+    expect(keyframes.length > 0).toBe(true)
+    // A width worked out into a keyframe is the one the browser may keep: none here.
+    expect(keyframes.filter(block => block.includes('var(--w)') || /\d+vw/.test(block))).toEqual([])
+  }
 })
 
 test('the character moves along the stage and stays on it, at any width', () => {
