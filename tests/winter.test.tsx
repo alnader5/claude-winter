@@ -151,10 +151,9 @@ test("Claude's pixel character and the spark share a band as wide as its slot", 
     const svg = await ui.find({ type: 'Svg' })
     const source = String(svg?.props.source)
 
-    // No width of its own: the app gives it the slot's, and the drawing fits the stage
-    // to its frame, between the narrowest and the widest.
-    expect(svg?.props).toMatchObject({ height: BAND_HEIGHT, isInteractive: true })
-    expect(svg?.props.width).toBeUndefined()
+    // The widest the stage can be: the desktop holds the frame to its slot, and the
+    // drawing fits the stage to the frame, between the narrowest and the widest.
+    expect(svg?.props).toMatchObject({ width: MAX_WIDTH, height: BAND_HEIGHT, isInteractive: true })
     expect(source).toMatch(new RegExp(`^<svg [^>]*width="${MAX_WIDTH}" height="${BAND_HEIGHT}"`))
     expect(source).toContain(`--w:max(${MIN_WIDTH}px,min(100vw,${MAX_WIDTH}px));width:var(--w)`)
     expect(svg?.props.alt).toBe("Claude's pixel character chasing a small orange spark along the band")
@@ -313,7 +312,7 @@ test('while Claude works, the character types at a laptop and the spark whirls',
     const svg = await ui.find({ type: 'Svg' })
     const source = String(svg?.props.source)
 
-    expect(svg?.props).toMatchObject({ height: BAND_HEIGHT, isInteractive: true })
+    expect(svg?.props).toMatchObject({ width: MAX_WIDTH, height: BAND_HEIGHT, isInteractive: true })
     expect(svg?.props.alt).toBe(
       "Claude's pixel character typing at a laptop while the spark spins: Claude is working",
     )

@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeSetArgs, Timer, TurnCompleteReason } from 'claude-code'
 
 import type { Motion, Occasion, Sky } from '../types'
-import { ALT, BAND_HEIGHT, ENDING_MS, bandOf } from './band'
+import { ALT, BAND_HEIGHT, ENDING_MS, MAX_WIDTH, bandOf } from './band'
 import type { Ending, Mood } from './band'
 import { makeColors } from './make-colors.js'
 import { WINTER } from './palette'
@@ -207,11 +207,19 @@ export const register: Register = on => {
     const mood: Mood = e.props.isWorking ? 'working' : (now?.mood ?? rest)
     const { Box, Svg } = $.ui.resolve(e)
 
-    // No width: the box takes the drawing's own, its widest, up to the slot, so the band
-    // runs the slot's whole width and the drawing lays its track out to fit.
+    // The widest the stage can be: the desktop draws the frame that wide but never past
+    // its slot (max-width 100%), so the band runs the slot's whole width, and the drawing
+    // lays its track out to fit the frame. With no width at all, the desktop's frame
+    // would stay at a browser's default 300 pixels.
     return (
       <Box>
-        <Svg source={bandFor(mood, how === 'calm', occasion)} alt={ALT[mood]} height={BAND_HEIGHT} isInteractive />
+        <Svg
+          source={bandFor(mood, how === 'calm', occasion)}
+          alt={ALT[mood]}
+          width={MAX_WIDTH}
+          height={BAND_HEIGHT}
+          isInteractive
+        />
       </Box>
     )
   })
