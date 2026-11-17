@@ -6,7 +6,18 @@ A winter look for Claude Code: snowy-day colors in light mode and winter-night c
 - **While Claude works** a laptop comes up out of the snow. The character types, stops to think (`...`) and glances at the spark, which whirls and glows. Now and then a robin comes down onto its hat.
 - **When a turn ends** the laptop folds away. The character jumps for joy under a green tick when Claude has answered, wonders (`?`) when the turn ended without an answer, and just stands when you stopped it. Then the chase starts again.
 
-The snowfall and the band are drawn in the Claude desktop app and the mobile app. The character moves a whole frame at a time on a pixel grid, the band holds still where the system asks for reduced motion, and each mood has its own description for screen readers.
+- **Point at the band** and everything holds still while the character turns to look at you and waves. **Click it** and the character jumps, a heart over its head.
+
+The snowfall and the band are drawn in the Claude desktop app and the mobile app.
+
+## The /winter command
+
+- `/winter calm` holds the band and the snow still, for when you want to focus.
+- `/winter off` hides the band and holds the snow still.
+- `/winter on` sets everything moving again.
+- `/winter` on its own says how it is set.
+
+The setting is kept for your next sessions. The character moves a whole frame at a time on a pixel grid, the band holds still where the system asks for reduced motion, and each mood has its own description for screen readers.
 
 ## Install
 
@@ -31,6 +42,8 @@ To take a newer version later, run `claude plugin update winter` and start a new
 ## بالعربية
 
 مود شتوي لـ Claude Code: ألوان يوم ثلجي في الوضع الفاتح وليلة شتوية في الوضع الداكن، وثلج يتساقط ببطء خلف المحادثة، وشخصية Claude البكسلية في شريط صغير فوق صندوق الكتابة. بين الأدوار تطارد الشخصية، بقبعتها الصوفية ووشاحها المخطط، الشرارة البرتقالية على طريق ثلجي: تسقط ندفة ثلج على الشرارة فتنفضها، وتنزلق الشخصية على الجليد بذراعين ممدودتين وتلوّح لرجل الثلج، وتذوب آثار أقدامها ببطء. وبينما يعمل Claude تكتب على حاسوب صغير وتتوقف لتفكّر، ويحطّ عصفور على قبعتها أحياناً، ثم تقفز فرحاً تحت علامة ✓ خضراء حين يصل الرد، أو تُظهر «؟» إن انتهى الدور بلا رد.
+
+مرّر الفأرة فوق الشريط فيتوقف كل شيء وتلتفت إليك الشخصية وتلوّح، وانقر عليه فتقفز ويظهر فوقها قلب. والأمر `/winter calm` يوقف الحركة وقت التركيز، و`/winter off` يخفي الشريط، و`/winter on` يعيد الحركة، ويبقى اختيارك محفوظاً لجلساتك القادمة.
 
 للتثبيت، اكتب في Claude Code داخل الطرفية:
 

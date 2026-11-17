@@ -28,6 +28,7 @@ import {
   COAL,
   EYE,
   EYES,
+  FACE,
   FLAKE,
   FLAKE_BLUE,
   HAT,
@@ -64,6 +65,7 @@ import {
   STRIPE,
   TICK,
   UNIT,
+  WAVE,
   balloonOf,
   pathOf,
 } from './sprite'
@@ -947,10 +949,39 @@ function raysOf(): string {
   }).join('')
 }
 
+// Everything that moves: what reduced motion holds still, and /winter calm too.
+const MOVING = '.m,.ray,.spark-x,.spark-hop,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint'
+
+const STILL = `:is(${MOVING}){animation:none!important}`
+
+// The pointer over the band stops it, where a pointer can hover: the character turns to
+// look at whoever it is and waves. A press on the band makes it jump with a heart over
+// its head, and the heart and its happy eyes stay a moment after the press.
+const INTERACTIVE = [
+  '.gaze,.wave-a,.wave-b,.poke-heart,.poke-face{opacity:0}',
+  '@media (hover: hover){' +
+    `svg:hover :is(${MOVING}){animation-play-state:paused}` +
+    'svg:hover .m:is([class*="eyes-"],[class*="arms-"],[class*="say-"]){opacity:0!important}' +
+    'svg:hover .gaze{opacity:1}' +
+    'svg:hover .wave-a{animation:wave-a 0.6s step-end infinite}' +
+    'svg:hover .wave-b{animation:wave-b 0.6s step-end infinite}}',
+  '@keyframes wave-a{0%{opacity:1}50%{opacity:0}}',
+  '@keyframes wave-b{0%{opacity:0}50%{opacity:1}}',
+  '.poke{transition:transform 0.25s steps(3,end) 0.45s}',
+  // Up from the press's first moment, so even the quickest click shows the jump.
+  'svg:active .poke{transform:translateY(-8px);transition:transform 0.08s steps(2,start)}',
+  '.poke-heart,.poke-face{transition:opacity 0s 1.2s}',
+  'svg:active :is(.poke-heart,.poke-face){opacity:1;transition:none}',
+  '@media (hover: hover) and (prefers-reduced-motion: reduce){svg:hover .wave-a{animation:none;opacity:1}}',
+  '@media (prefers-reduced-motion: reduce){.poke,svg:active .poke{transform:none;transition:none}}',
+].join('\n')
+
 /**
- * The band's drawing in a mood, for a track `width` CSS pixels wide.
+ * The band's drawing in a mood, for a track `width` CSS pixels wide. `calm`, as the
+ * person asks with /winter calm, holds it still on its still frame, with no answer to
+ * the pointer.
  */
-export function bandOf(width: number, mood: Mood = 'idle'): string {
+export function bandOf(width: number, mood: Mood = 'idle', { calm = false }: { calm?: boolean } = {}): string {
   const story = storyOf(width)
   const track = trackOf(width)
   const reel = reelOf(width, mood, story)
@@ -1083,8 +1114,22 @@ export function bandOf(width: number, mood: Mood = 'idle'): string {
     '@keyframes glint{0%{opacity:0}86%{opacity:0.9}92%{opacity:0}}',
     `.ray{stroke:${ORANGE};stroke-width:2.1;stroke-linecap:round;animation:breathe ${mood === 'working' ? 1.3 : 2.6}s ease-in-out infinite}`,
     '@keyframes breathe{0%,100%{transform:scaleX(1)}50%{transform:scaleX(0.7)}}',
-    '@media (prefers-reduced-motion: reduce){.m,.ray,.spark-x,.spark-hop,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint{animation:none}}',
+    `@media (prefers-reduced-motion: reduce){${MOVING}{animation:none}}`,
+    calm ? STILL : INTERACTIVE,
   ].join('\n')
+
+  // What answers the pointer: eyes that look out, a waving arm, and for a press a happy
+  // face and a heart.
+  const answer = calm
+    ? { body: '', over: '' }
+    : {
+        body:
+          `<path class="gaze" fill="${EYE}" d="${pathOf(EYES.ahead)}"/>` +
+          `<path class="wave-a" fill="${ORANGE}" d="${pathOf(WAVE.a)}"/>` +
+          `<path class="wave-b" fill="${ORANGE}" d="${pathOf(WAVE.b)}"/>` +
+          `<g class="poke-face"><path fill="${ORANGE}" d="${pathOf(FACE)}"/><path fill="${EYE}" d="${pathOf(EYES.happy)}"/></g>`,
+        over: `<path class="poke-heart" fill="${HEART}" d="${pathOf(balloonOf(SAY.love))}"/>`,
+      }
 
   // The glow: soft orange, fading out from the spark's heart.
   const defs = isLit
@@ -1125,7 +1170,7 @@ ${snowman}
 ${embers}
 <g class="spark-x"><g class="spark-hop"><g transform="translate(${SPARK_BOX / 2} ${SPARK_CENTER_Y})">${glow}<g class="spark-tilt"><g class="spark-wind"><g class="spark-spin">${raysOf()}</g></g></g></g></g></g>
 ${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}
-<g class="m walker px"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}</g>${breath.svg}${words.svg}${love.svg}${tick.svg}</g>${lid.svg}${hinge.svg}${logo.svg}</g>
+<g class="m walker px"><g class="poke"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}</g>
 ${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}
 </svg>`
 }

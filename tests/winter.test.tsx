@@ -1,5 +1,6 @@
 import type { ThemeSetArgs } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
+import type { FoundElement } from 'claude-code/testing'
 
 import {
   ALT,
@@ -64,6 +65,8 @@ function expectOnTrack(frames: readonly Frame[], width: number, isLoop: boolean)
 test('the session starts with the whole look, and its colors have no problem', async ($, on) => {
   let look: ThemeSetArgs | undefined
 
+  mock.store(on)
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
   // Each hook here stands for the engine: it records the look and says a client draws it.
   on('theme.set', (_, e) => {
     look = e
@@ -392,6 +395,67 @@ test("a subagent's turns leave the band be, and an ending gives way to the next 
   await clock.advance(ENDING_MS.joy + 1000)
   expect(await alt()).toBe(ALT.working)
   await ui.unmount()
+})
+
+test('the pointer stops the band to wave, and a press makes the character jump with a heart', () => {
+  for (const mood of ['idle', 'working', 'joy'] as const) {
+    const source = bandOf(320, mood)
+
+    // Over the band, where a pointer hovers: everything holds, the eyes look out, and
+    // an arm waves in place of the arms of the moment.
+    expect(source).toContain('@media (hover: hover){svg:hover')
+    expect(source).toContain('animation-play-state:paused')
+    expect(source).toContain('class="gaze"')
+    expect(source).toContain('class="wave-a"')
+    // A press: up a few pixels with a heart and happy eyes, which stay a moment after.
+    expect(source).toContain('svg:active .poke{transform:translateY(-8px)')
+    expect(source).toContain('class="poke-heart"')
+    expect(source).toContain('class="poke-face"')
+  }
+})
+
+test('/winter calms the band and the snow, hides the band, and the next session remembers', async ($, on) => {
+  mock.store(on)
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('theme.set', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const backdrop = await $.ui.mount({ ...BACKDROP, surface: 'desktop' })
+  const sourceOf = async (found: Promise<FoundElement | undefined>) => String((await found)?.props.source)
+  const winter = (args: string) =>
+    $.command.run({
+      command: 'winter',
+      args,
+      origin: { kind: 'composer' },
+      presentation: { isFullscreen: false, columns: 80 },
+    })
+
+  expect(await sourceOf(band.find({ type: 'Svg' }))).toContain('svg:hover')
+  expect(await sourceOf(backdrop.find({ type: 'Svg' }))).not.toContain('/winter calm')
+
+  // Calm: the still frame, no answer to the pointer, and the snow resting.
+  expect((await winter('calm')).text).toContain('calm')
+  expect(await sourceOf(band.find({ type: 'Svg' }))).toContain('animation:none!important')
+  expect(await sourceOf(band.find({ type: 'Svg' }))).not.toContain('svg:hover')
+  expect(await sourceOf(backdrop.find({ type: 'Svg' }))).toContain('/winter calm')
+
+  // Off: no band at all, and the next session starts as this one was left.
+  await winter('OFF ')
+  expect(await band.find({ type: 'Svg' })).toBeUndefined()
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(await band.find({ type: 'Svg' })).toBeUndefined()
+  expect((await winter('')).text).toContain('hidden')
+
+  // On again; anything else is answered with how to use it.
+  await winter('on')
+  expect(await sourceOf(band.find({ type: 'Svg' }))).toContain('svg:hover')
+  expect(await sourceOf(backdrop.find({ type: 'Svg' }))).not.toContain('/winter calm')
+  expect((await winter('loud')).text).toContain('Usage')
+  await band.unmount()
+  await backdrop.unmount()
 })
 
 test('the band yields to a survey, and the terminal draws none', async $ => {

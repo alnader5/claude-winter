@@ -6,8 +6,12 @@ export type Beat = {
   turnId: string
 }
 
+// How much of the winter moves, as /winter last set it: everything ('on'), nothing
+// ('calm'), or nothing and no band ('off'). Kept in the store across sessions too.
+export type Motion = 'on' | 'calm' | 'off'
+
 declare module 'claude-code' {
   interface PluginState {
-    winter: { beat: Beat | null }
+    winter: { beat: Beat | null; motion: Motion }
   }
 }

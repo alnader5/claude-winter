@@ -101,3 +101,10 @@ export const SCENE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WID
 </g>
 ${LAYERS.map(flakesOf).join('')}
 </svg>`
+
+// The snowfall held still, as the person asks with /winter calm: each flake where it
+// rests for reduced motion.
+export const SCENE_CALM = SCENE.replace(
+  '</style>',
+  '  /* /winter calm */ .flake { animation: none; transform: translate(0, var(--rest)); }\n</style>',
+)

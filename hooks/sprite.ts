@@ -129,6 +129,21 @@ export const ARMS = {
   ],
 } as const satisfies Record<string, readonly Rect[]>
 
+// Waving at whoever has the pointer over the band: the right arm up, then out.
+export const WAVE = {
+  a: [
+    [1, 4, 2, 2],
+    [15, 1, 2, 2],
+  ],
+  b: [
+    [1, 4, 2, 2],
+    [16, 2, 2, 2],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+// A patch of body over where the eyes are, so happy eyes can be drawn on it.
+export const FACE: readonly Rect[] = [[4, 2, 10, 2]]
+
 export const EYES = {
   ahead: [
     [5, 2, 1, 2],
