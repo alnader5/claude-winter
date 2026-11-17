@@ -17,9 +17,8 @@ const LOOK: ThemeSetArgs = {
   backdrop: { scene: SCENE_NAME, glass: { blur: 4, opacity: 0.64 } },
 }
 
-// The band's track in CSS pixels, narrower on a phone. Each drawing, of the band or of
-// the backdrop, is made the first time it is asked for, and kept.
-const WIDTH = { desktop: 320, mobile: 220 } as const
+// Each drawing, of the band or of the backdrop, is made the first time it is asked for,
+// and kept. The band's fits whatever width the app gives it, on a desktop or a phone.
 const drawings = new Map<string, string>()
 
 function drawn(key: string, draw: () => string): string {
@@ -33,8 +32,8 @@ function drawn(key: string, draw: () => string): string {
   return drawing
 }
 
-const bandFor = (surface: keyof typeof WIDTH, mood: Mood, calm: boolean, occasion: Occasion) =>
-  drawn(`band:${surface}:${mood}:${calm}:${occasion}`, () => bandOf(WIDTH[surface], mood, { calm, occasion }))
+const bandFor = (mood: Mood, calm: boolean, occasion: Occasion) =>
+  drawn(`band:${mood}:${calm}:${occasion}`, () => bandOf(mood, { calm, occasion }))
 
 const sceneFor = (sky: Sky, occasion: Occasion, calm: boolean) =>
   drawn(`scene:${sky}:${occasion}:${calm}`, () => sceneOf({ sky, occasion, calm }))
@@ -208,15 +207,11 @@ export const register: Register = on => {
     const mood: Mood = e.props.isWorking ? 'working' : (now?.mood ?? rest)
     const { Box, Svg } = $.ui.resolve(e)
 
+    // No width: the box takes the drawing's own, its widest, up to the slot, so the band
+    // runs the slot's whole width and the drawing lays its track out to fit.
     return (
       <Box>
-        <Svg
-          source={bandFor(e.surface, mood, how === 'calm', occasion)}
-          alt={ALT[mood]}
-          width={WIDTH[e.surface]}
-          height={BAND_HEIGHT}
-          isInteractive
-        />
+        <Svg source={bandFor(mood, how === 'calm', occasion)} alt={ALT[mood]} height={BAND_HEIGHT} isInteractive />
       </Box>
     )
   })

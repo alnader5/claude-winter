@@ -1,6 +1,6 @@
 {
   "name": "winter",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "A winter look: snowy-day and winter-night colors, a slow snowfall behind the conversation, and Claude's pixel character above the prompt, chasing a small orange spark, typing at a laptop while Claude works and cheering when it answers.",
   "author": { "name": "alnader5" },
   "homepage": "https://github.com/alnader5/claude-winter",

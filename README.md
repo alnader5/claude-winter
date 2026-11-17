@@ -11,7 +11,7 @@ A winter look for Claude Code: snowy-day colors in light mode and winter-night c
 - **The sky follows your clock**: a moon and twinkling stars at night, a low sun at dawn and at dusk.
 - **Occasions**: on New Year's Eve and New Year's Day the character wears a party hat under falling confetti. Through Ramadan a lantern hangs over the band and a crescent stands in the sky.
 
-The snowfall and the band are drawn in the Claude desktop app and the mobile app.
+The snowfall and the band are drawn in the Claude desktop app and the mobile app. The band runs the whole width the app gives it, up to 1200 pixels: the track, the snowman and the ice are laid out to fit it, and the character crosses a wider band faster.
 
 ## The /winter command
 
@@ -45,6 +45,8 @@ To take a newer version later, run `claude plugin update winter` and start a new
 ## بالعربية
 
 مود شتوي لـ Claude Code: ألوان يوم ثلجي في الوضع الفاتح وليلة شتوية في الوضع الداكن، وثلج يتساقط ببطء خلف المحادثة، وشخصية Claude البكسلية في شريط صغير فوق صندوق الكتابة. بين الأدوار تطارد الشخصية، بقبعتها الصوفية ووشاحها المخطط، الشرارة البرتقالية على طريق ثلجي: تسقط ندفة ثلج على الشرارة فتنفضها، وتنزلق الشخصية على الجليد بذراعين ممدودتين وتلوّح لرجل الثلج، وتذوب آثار أقدامها ببطء. وبينما يعمل Claude تكتب على حاسوب صغير وتتوقف لتفكّر، ويحطّ عصفور على قبعتها أحياناً، ثم تقفز فرحاً تحت علامة ✓ خضراء حين يصل الرد، أو تُظهر «؟» إن انتهى الدور بلا رد.
+
+ويمتد الشريط بعرض المساحة كلها حتى 1200 بكسل، فيتوزع الطريق ورجل الثلج والجليد على العرض، وتقطعه الشخصية أسرع كلما اتسع.
 
 مرّر الفأرة فوق الشريط فيتوقف كل شيء وتلتفت إليك الشخصية وتلوّح، وانقر عليه فتقفز ويظهر فوقها قلب. والأمر `/winter calm` يوقف الحركة وقت التركيز، و`/winter off` يخفي الشريط، و`/winter on` يعيد الحركة، ويبقى اختيارك محفوظاً لجلساتك القادمة.
 

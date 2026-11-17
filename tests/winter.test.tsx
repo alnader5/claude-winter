@@ -8,18 +8,22 @@ import {
   ENDING_MS,
   HOME,
   MAX_HOP,
+  MAX_WIDTH,
+  MIN_WIDTH,
+  REFERENCE_WIDTH,
+  TRACK,
   bandOf,
   endingOf,
   isOnIce,
+  pixelsOf,
   printsOf,
   reelOf,
   sleepingOf,
   storyOf,
-  trackOf,
   trailOf,
   workingOf,
 } from '../hooks/band'
-import type { Frame } from '../hooks/band'
+import type { Frame, Place } from '../hooks/band'
 import { checkColors } from '../hooks/make-colors.js'
 import { sceneOf } from '../hooks/scene'
 import {
@@ -65,17 +69,30 @@ const SVG_LIMIT = 131072
 // A plain midday on this machine's clock: no occasion, nobody asleep.
 const NOON = new Date(2026, 10, 18, 12, 0).getTime()
 
-// The rules every frame keeps, in every mood: on the grid and on the track, no higher
-// than the pom-pom allows, a balloon only on the ground, and no frame leaping across.
-function expectOnTrack(frames: readonly Frame[], width: number, isLoop: boolean) {
-  frames.forEach((frame, index) => {
-    const next = isLoop ? frames[(index + 1) % frames.length] : frames[index + 1]
+// Widths the stage may have: its narrowest, a phone's, the one the frames are timed
+// for, a desktop's, and its widest.
+const WIDTHS = [MIN_WIDTH, 360, REFERENCE_WIDTH, 760, MAX_WIDTH]
 
-    expect(frame.x % UNIT).toBe(0)
-    expect(frame.x >= 0 && frame.x + SPRITE_WIDTH <= width).toBe(true)
+const isAt = (place: Place, other: Place) => place.px === other.px && place.of === other.of
+
+// The rules every frame keeps, in every mood and at every width: on the stage, no
+// higher than the pom-pom allows, a balloon only on the ground, and no frame going
+// further than a run's stride, which a wider stage lengthens in step with its track.
+function expectOnTrack(frames: readonly Frame[], isLoop: boolean) {
+  for (const width of WIDTHS) {
+    const stride = 2 * UNIT * Math.max(1, (width - 64) / (REFERENCE_WIDTH - 64)) + 1e-6
+
+    frames.forEach((frame, index) => {
+      const next = (isLoop ? frames[(index + 1) % frames.length] : frames[index + 1]) ?? frame
+      const x = pixelsOf(frame.x, width)
+
+      expect(x >= 0 && x + SPRITE_WIDTH <= width).toBe(true)
+      expect(Math.abs(pixelsOf(next.x, width) - x) <= stride).toBe(true)
+    })
+  }
+  frames.forEach(frame => {
     expect(frame.hop >= 0 && frame.hop <= MAX_HOP).toBe(true)
     expect(frame.say === 'none' || frame.hop === 0).toBe(true)
-    expect(Math.abs((next?.x ?? frame.x) - frame.x) <= 2 * UNIT).toBe(true)
   })
 }
 
@@ -126,23 +143,27 @@ test("another mod's scene is left alone", async $ => {
   await ui.unmount()
 })
 
-test("Claude's pixel character and the spark share the band above the prompt", async $ => {
-  for (const [surface, width] of [
-    ['desktop', 320],
-    ['mobile', 220],
-  ] as const) {
+test("Claude's pixel character and the spark share a band as wide as its slot", async $ => {
+  const sources: string[] = []
+
+  for (const surface of ['desktop', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
     const svg = await ui.find({ type: 'Svg' })
     const source = String(svg?.props.source)
 
-    expect(svg?.props).toMatchObject({ width, height: BAND_HEIGHT, isInteractive: true })
+    // No width of its own: the app gives it the slot's, and the drawing fits the stage
+    // to its frame, between the narrowest and the widest.
+    expect(svg?.props).toMatchObject({ height: BAND_HEIGHT, isInteractive: true })
+    expect(svg?.props.width).toBeUndefined()
+    expect(source).toMatch(new RegExp(`^<svg [^>]*width="${MAX_WIDTH}" height="${BAND_HEIGHT}"`))
+    expect(source).toContain(`--w:max(${MIN_WIDTH}px,min(100vw,${MAX_WIDTH}px));width:var(--w)`)
     expect(svg?.props.alt).toBe("Claude's pixel character chasing a small orange spark along the band")
     expect(source).toContain('#d97757')
-    // The sprite's pixels stay square and sharp, and it moves a whole frame at a time.
+    // The sprite's pixels stay square and sharp, and its limbs move a frame at a time.
     expect(source).toContain('shape-rendering:crispEdges')
     expect(source).toContain('animation-timing-function:step-end')
-    // The spark rolls to the far end of its own track and no further.
-    expect(source).toContain(`translateX(${width - 24}px)`)
+    // The spark rolls to the far end of the stage, whatever its width, on the grid.
+    expect(source).toContain('translateX(round(nearest,calc(1 * var(--w) - 24px),2px))')
     // Dressed for the cold, beside a snowman.
     expect(source).toContain(KNIT_RED)
     expect(source).toContain(STRIPE)
@@ -151,34 +172,46 @@ test("Claude's pixel character and the spark share the band above the prompt", a
     expect(source).not.toContain(LID_GRAY)
     expect(source).not.toContain('class="glow"')
     expect(source.length < SVG_LIMIT).toBe(true)
+    sources.push(source)
     await ui.unmount()
   }
+
+  // One drawing serves a desktop and a phone alike.
+  expect(sources[0]).toBe(sources[1])
 })
 
-test('the character moves on the pixel grid and stays on its track', () => {
-  for (const width of [320, 220]) {
-    const { frames, spark } = storyOf(width)
+test('the character moves along the stage and stays on it, at any width', () => {
+  const { frames, spark } = storyOf()
 
-    // The loop closes where it opened, standing at home beside the spark.
-    expect(frames[frames.length - 1]).toEqual(frames[0])
-    expect(frames[0]).toEqual(HOME)
-    expect(HOME.x).toBe(spark.home - 38)
-    expectOnTrack(frames, width, true)
+  // The loop closes where it opened, standing at home beside the spark.
+  expect(frames[frames.length - 1]).toEqual(frames[0])
+  expect(frames[0]).toEqual(HOME)
+  expect(spark.home).toEqual({ px: HOME.x.px + 38, of: 0 })
+  expectOnTrack(frames, true)
 
-    // The spark's rolls come in order inside the loop.
-    expect(0 < spark.out && spark.out + spark.outFrames < spark.back).toBe(true)
-    expect(spark.back + spark.backFrames < frames.length).toBe(true)
-    // It is out at the far end before the character gets near, and home before it returns.
-    expect(frames.findIndex(frame => frame.x >= spark.far - 38 - 2 * UNIT) > spark.out + spark.outFrames).toBe(true)
-    expect(
-      frames.findIndex((frame, index) => index > spark.back && frame.x === spark.home - 38) >
-        spark.back + spark.backFrames,
-    ).toBe(true)
+  for (const width of WIDTHS) {
+    // The spark rolls to the right edge, and the character runs to stop short of it.
+    expect(pixelsOf(spark.far, width) + 24).toBe(width)
+    expect(Math.max(...frames.map(frame => pixelsOf(frame.x, width) + SPRITE_WIDTH))).toBeLessThanOrEqual(width)
+    expect(frames.some(frame => isAt(frame.x, TRACK.stop))).toBe(true)
   }
+
+  // The spark's rolls come in order inside the loop.
+  expect(0 < spark.out && spark.out + spark.outFrames < spark.back).toBe(true)
+  expect(spark.back + spark.backFrames < frames.length).toBe(true)
+  // It is out at the far end before the character gets near, and home before it returns.
+  const near = pixelsOf(spark.far, REFERENCE_WIDTH) - 38 - 2 * UNIT
+
+  expect(frames.findIndex(frame => pixelsOf(frame.x, REFERENCE_WIDTH) >= near) > spark.out + spark.outFrames).toBe(
+    true,
+  )
+  expect(
+    frames.findIndex((frame, index) => index > spark.back && isAt(frame.x, HOME.x)) > spark.back + spark.backFrames,
+  ).toBe(true)
 })
 
 test('a snowflake lands on the spark, which shakes it off before it rolls away', () => {
-  const { frames, spark } = storyOf(320)
+  const { frames, spark } = storyOf()
   const shaken = frames.findIndex(frame => frame.tilt !== 0)
 
   // It comes down from over the band, and rests on the spark until the spark shakes.
@@ -191,88 +224,96 @@ test('a snowflake lands on the spark, which shakes it off before it rolls away',
 })
 
 test('it puffs in the cold after running, and its scarf streams behind it', () => {
-  const { frames } = storyOf(320)
-  const arrived = frames.findIndex(frame => frame.x === trackOf(320).stop)
+  const { frames } = storyOf()
+  const arrived = frames.findIndex(frame => isAt(frame.x, TRACK.stop))
 
   expect(frames.slice(arrived, arrived + 8).some(frame => frame.breath !== 'none')).toBe(true)
 
   frames.forEach((frame, index) => {
     const before = frames[(index - 1 + frames.length) % frames.length] ?? frame
-    const dx = frame.x - before.x
+    const dx = pixelsOf(frame.x, REFERENCE_WIDTH) - pixelsOf(before.x, REFERENCE_WIDTH)
 
     // Out to the left while it moves right, to the right while it moves left.
-    expect(dx > 0 ? frame.scarf.startsWith('blowL') : dx < 0 ? frame.scarf.startsWith('blowR') : frame.scarf === 'still').toBe(
-      true,
-    )
+    expect(
+      dx > 0 ? frame.scarf.startsWith('blowL') : dx < 0 ? frame.scarf.startsWith('blowR') : frame.scarf === 'still',
+    ).toBe(true)
   })
 })
 
-test('the walk home slides across the ice and stops to wave to the snowman', () => {
-  for (const width of [320, 220]) {
-    const track = trackOf(width)
-    const { frames } = storyOf(width)
+test('the walk home slides across the ice and stops to wave to the snowman, at any width', () => {
+  const { frames } = storyOf()
+
+  for (const width of WIDTHS) {
     const slides = frames.filter(frame => frame.arms === 'out')
 
     // Sliding happens on the ice, or skidding a step or two past its edge.
     expect(slides.length > 0).toBe(true)
-    expect(slides.every(frame => [-8, -6, -4, -2, 0, 2, 4, 6, 8].some(d => isOnIce(track, frame.x + d)))).toBe(true)
+    expect(
+      slides.every(frame => [-8, -6, -4, -2, 0, 2, 4, 6, 8].some(d => isOnIce({ ...frame.x, px: frame.x.px + d }, width))),
+    ).toBe(true)
     // Walking home over the ice is all sliding: no step is taken on it.
     frames.forEach((frame, index) => {
       const before = frames[index - 1]
 
-      if (before !== undefined && frame.x < before.x && isOnIce(track, frame.x)) {
+      if (before !== undefined && pixelsOf(frame.x, width) < pixelsOf(before.x, width) && isOnIce(frame.x, width)) {
         expect(frame.arms).toBe('out')
       }
     })
-
-    // It waves at the snowman's side, looking at it, and the snowman waves back there.
-    const waves = frames.filter(frame => frame.pal === 'wave')
-
-    expect(waves.length > 0).toBe(true)
-    expect(waves.every(frame => frame.x === track.greet && frame.eyes === 'left')).toBe(true)
-    expect(frames.some(frame => frame.x === track.greet && frame.arms === 'up')).toBe(true)
-    // The snowman stands clear of the spark at home, and the ice clear of both stops.
-    expect(track.snowman - 3 * UNIT > track.sparkHome + 24).toBe(true)
-    expect(isOnIce(track, track.greet) || isOnIce(track, track.stop)).toBe(false)
+    // The ice clear of both stops, and the snowman clear of the spark at home.
+    expect(isOnIce(TRACK.greet, width) || isOnIce(TRACK.stop, width)).toBe(false)
+    expect(pixelsOf(TRACK.snowman, width) - 3 * UNIT > pixelsOf(TRACK.sparkHome, width) + 24).toBe(true)
   }
+
+  // It waves at the snowman's side, looking at it, and the snowman waves back there.
+  const waves = frames.filter(frame => frame.pal === 'wave')
+
+  expect(waves.length > 0).toBe(true)
+  expect(waves.every(frame => isAt(frame.x, TRACK.greet) && frame.eyes === 'left')).toBe(true)
+  expect(frames.some(frame => isAt(frame.x, TRACK.greet) && frame.arms === 'up')).toBe(true)
 })
 
 test('footprints melt in the snow, never on the ice, and the spark sheds sparks on its dash', () => {
-  for (const width of [320, 220]) {
-    const track = trackOf(width)
-    const story = storyOf(width)
-    const prints = printsOf(story, track)
-    const embers = trailOf(story)
-    const source = bandOf(width, 'idle')
+  const story = storyOf()
+  const prints = printsOf(story)
+  const embers = trailOf(story)
+  const source = bandOf('idle')
+  const iceStart = pixelsOf(TRACK.iceStart, REFERENCE_WIDTH)
+  const iceEnd = pixelsOf(TRACK.iceEnd, REFERENCE_WIDTH)
 
-    expect(prints.size > 10).toBe(true)
-    for (const at of prints.keys()) {
-      expect(at + UNIT <= track.iceStart || at >= track.iceEnd).toBe(true)
-    }
-    // Shed on the dash home, one a frame, each about where the spark is then.
-    expect(embers.length > 5).toBe(true)
-    expect(embers.every(ember => ember.at > story.spark.back && ember.at < story.spark.back + story.spark.backFrames)).toBe(
-      true,
-    )
-    expect(embers.every(ember => ember.x > story.spark.home && ember.x < story.spark.far + 24 + 4 * UNIT)).toBe(true)
-    expect((source.match(/class="print"/g) ?? []).length).toBe(prints.size)
-    expect((source.match(/class="ember"/g) ?? []).length).toBe(embers.length)
+  expect(prints.length > 10).toBe(true)
+  for (const print of prints) {
+    const at = pixelsOf(print.at, REFERENCE_WIDTH)
+
+    expect(at + UNIT <= iceStart || at >= iceEnd).toBe(true)
   }
+  // Shed on the dash home, one a frame, each about where the spark is then.
+  expect(embers.length > 5).toBe(true)
+  expect(
+    embers.every(ember => ember.frame > story.spark.back && ember.frame < story.spark.back + story.spark.backFrames),
+  ).toBe(true)
+  for (const width of WIDTHS) {
+    for (const ember of embers) {
+      const at = pixelsOf(ember.at, width)
+
+      expect(at > pixelsOf(story.spark.home, width) && at < width + 4 * UNIT).toBe(true)
+    }
+  }
+  // Each one a mark of its own on one shared fade.
+  expect((source.match(/class="print"/g) ?? []).length).toBe(prints.length)
+  expect((source.match(/class="ember"/g) ?? []).length).toBe(embers.length)
+  expect(source).toContain('@keyframes melt{')
 
   // The work leaves no tracks.
-  expect(bandOf(320, 'working')).not.toContain('class="print"')
+  expect(bandOf('working')).not.toContain('class="print"')
 })
 
 test('while Claude works, the character types at a laptop and the spark whirls', async $ => {
-  for (const [surface, width] of [
-    ['desktop', 320],
-    ['mobile', 220],
-  ] as const) {
+  for (const surface of ['desktop', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface })
     const svg = await ui.find({ type: 'Svg' })
     const source = String(svg?.props.source)
 
-    expect(svg?.props).toMatchObject({ width, height: BAND_HEIGHT, isInteractive: true })
+    expect(svg?.props).toMatchObject({ height: BAND_HEIGHT, isInteractive: true })
     expect(svg?.props.alt).toBe(
       "Claude's pixel character typing at a laptop while the spark spins: Claude is working",
     )
@@ -292,12 +333,12 @@ test('while Claude works, the character types at a laptop and the spark whirls',
   expect(intro[intro.length - 1]).toMatchObject({ laptop: 'open', say: 'none' })
   // The whole loop at the laptop, on the ground at home: typing with both hands, and
   // thinking all three dots through.
-  expect(loop.every(frame => frame.x === HOME.x && frame.hop === 0 && frame.laptop === 'open')).toBe(true)
+  expect(loop.every(frame => isAt(frame.x, HOME.x) && frame.hop === 0 && frame.laptop === 'open')).toBe(true)
   expect(loop.some(frame => frame.arms === 'tapL') && loop.some(frame => frame.arms === 'tapR')).toBe(true)
   expect(['think1', 'think2', 'think3'].every(say => loop.some(frame => frame.say === say))).toBe(true)
   expect(poster).toMatchObject({ laptop: 'open' })
-  expectOnTrack(intro, 220, false)
-  expectOnTrack(loop, 220, true)
+  expectOnTrack(intro, false)
+  expectOnTrack(loop, true)
 })
 
 test('a robin visits the hat while Claude works, and never sits over its thoughts', () => {
@@ -318,6 +359,8 @@ test('each ending folds the laptop away and lands where the chase begins', () =>
   for (const mood of ['joy', 'puzzled', 'closing'] as const) {
     const frames = endingOf(mood)
     const gone = frames.findIndex(frame => frame.laptop === 'none')
+    const reel = reelOf(mood)
+    const source = bandOf(mood)
 
     // From the laptop as the work left it, to home, standing.
     expect(frames[0]).toMatchObject({ x: HOME.x, laptop: 'open' })
@@ -326,24 +369,18 @@ test('each ending folds the laptop away and lands where the chase begins', () =>
     // The laptop is gone before it jumps or says a thing.
     expect(gone > 0).toBe(true)
     expect(frames.slice(0, gone).every(frame => frame.hop === 0 && frame.say === 'none')).toBe(true)
-    expectOnTrack(frames, 220, false)
-
-    for (const width of [320, 220]) {
-      const reel = reelOf(width, mood)
-      const source = bandOf(width, mood)
-
-      // It plays on into the chase.
-      expect(reel.intro).toEqual(frames)
-      expect(reel.loop).toEqual(storyOf(width).frames)
-      expect(source).toContain('animation:spark-settle')
-      expect(source.length < SVG_LIMIT).toBe(true)
-    }
+    expectOnTrack(frames, false)
+    // It plays on into the chase.
+    expect(reel.intro).toEqual(frames)
+    expect(reel.loop).toEqual(storyOf().frames)
+    expect(source).toContain('animation:spark-settle')
+    expect(source.length < SVG_LIMIT).toBe(true)
   }
 
   // Joy hops and shows a tick; a turn without an answer gets a "?".
   expect(endingOf('joy').some(frame => frame.hop > 0)).toBe(true)
   expect(endingOf('joy').some(frame => frame.say === 'done')).toBe(true)
-  expect(bandOf(320, 'joy')).toContain(TICK)
+  expect(bandOf('joy')).toContain(TICK)
   expect(endingOf('puzzled').some(frame => frame.say === 'ask')).toBe(true)
   expect(endingOf('closing').every(frame => frame.say === 'none' && frame.hop === 0)).toBe(true)
 })
@@ -417,7 +454,7 @@ test("a subagent's turns leave the band be, and an ending gives way to the next 
 
 test('the pointer stops the band to wave, and a press makes the character jump with a heart', () => {
   for (const mood of ['idle', 'working', 'joy'] as const) {
-    const source = bandOf(320, mood)
+    const source = bandOf(mood)
 
     // Over the band, where a pointer hovers: everything holds, the eyes look out, and
     // an arm waves in place of the arms of the moment.
@@ -500,10 +537,10 @@ test("asleep, it sits in the snow while the z's come and go", () => {
   expect(loop.every(frame => frame.crouch && frame.legs === 'tuck' && frame.eyes === 'shut')).toBe(true)
   expect(['z1', 'z2', 'z3'].every(z => loop.some(frame => frame.say === z))).toBe(true)
   expect(poster.say).toBe('z2')
-  expectOnTrack(intro, 220, false)
-  expectOnTrack(loop, 220, true)
+  expectOnTrack(intro, false)
+  expectOnTrack(loop, true)
 
-  const source = bandOf(320, 'sleep')
+  const source = bandOf('sleep')
 
   // No chase while it sleeps: no footprints, and the spark rests, unlit.
   expect(source).not.toContain('class="print"')
@@ -549,19 +586,20 @@ test('late at night with nothing to do it dozes off, work wakes it, and by day i
 })
 
 test('it dresses for New Year and for Ramadan, and the sky follows the clock', async ($, on) => {
-  const newYear = bandOf(320, 'idle', { occasion: 'newyear' })
-  const ramadan = bandOf(220, 'working', { occasion: 'ramadan' })
+  const newYear = bandOf('idle', { occasion: 'newyear' })
+  const ramadan = bandOf('working', { occasion: 'ramadan' })
 
   // A party hat in place of the knitted one, and confetti.
   expect(newYear).toContain(PARTY_PURPLE)
   expect(newYear).toContain('class="confetti"')
   expect(newYear).not.toContain(KNIT_PINK)
-  // A lantern hung over the track.
+  // A lantern hung over the track, halfway along it.
   expect(ramadan).toContain(LANTERN_GOLD)
   expect(ramadan).toContain('class="lantern-lit"')
+  expect(ramadan).toContain('.lantern{transform:translateX(round(nearest,calc(0.5 * var(--w)),2px))}')
   for (const occasion of ['none', 'newyear', 'ramadan'] as const) {
     for (const mood of ['idle', 'working', 'joy', 'sleep'] as const) {
-      expect(bandOf(320, mood, { occasion }).length < SVG_LIMIT).toBe(true)
+      expect(bandOf(mood, { occasion }).length < SVG_LIMIT).toBe(true)
     }
   }
 

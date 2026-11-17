@@ -1,7 +1,8 @@
 // The row above the prompt: Claude's pixel character and the small orange spark share
-// one snowy track. The spark moves smoothly. The character moves the way an old game's
-// sprite does: a whole frame at a time, twelve frames a second, on a grid of pixels.
-// It wears a knitted hat and a striped scarf, whose end streams behind it as it moves.
+// one snowy track, as wide as the band is drawn. The spark moves smoothly. The character
+// moves the way an old game's sprite does, its limbs a whole frame at a time, twelve
+// frames a second, on a grid of pixels. It wears a knitted hat and a striped scarf,
+// whose end streams behind it as it moves.
 //
 // The band has a mood, and each mood is a reel: an intro played once, then a loop.
 //
@@ -17,6 +18,13 @@
 // - joy, puzzled and closing, as a turn ends with an answer, without one, or stopped:
 //   the character folds the laptop away and cheers with a tick, wonders ("?") or just
 //   stands, while the spark spins down. Then the chase starts over.
+// - sleep, late at night with nothing to do: it dozes in the snow, z's over its head.
+//
+// The width: the app tells a hook the band's width in cells of text, not in pixels, but
+// the drawing's own frame knows its width in pixels. So the drawing reads it in its CSS
+// (`--w`), and every place along the track is a number of pixels plus a share of that
+// width. The frames are timed for REFERENCE_WIDTH: a wider band is crossed faster, a
+// narrower one slower, and everything else keeps its time.
 
 import {
   ARMS,
@@ -84,6 +92,12 @@ export const BAND_HEIGHT = 36
 // The character's frame rate.
 export const FPS = 12
 
+// The stage's width in CSS pixels: the band's own, held between these two, and the one
+// the frames are timed for.
+export const MIN_WIDTH = 240
+export const MAX_WIDTH = 1200
+export const REFERENCE_WIDTH = 480
+
 export type Mood = 'idle' | 'working' | 'joy' | 'puzzled' | 'closing' | 'sleep'
 export type Ending = Exclude<Mood, 'idle' | 'working' | 'sleep'>
 
@@ -125,11 +139,44 @@ const SPARK_CENTER_Y = BAND_HEIGHT - GROUND - 1 - SPARK_RADIUS
 // the spark's rays 6 pixels clear of the character's arm.
 const SIDE_BY_SIDE = SPRITE_WIDTH - UNIT + 6 - (SPARK_BOX / 2 - SPARK_RADIUS)
 
+// Paces at the reference width, in pixels a frame.
 const RUN_STEP = 2 * UNIT
 const WALK_STEP = UNIT
+const SLIDE_STEP = 2 * UNIT
 
 // While Claude works the spark whirls a turn in this many seconds.
 const WHIRL_SECONDS = 2.4
+
+// A place along the track: `px` CSS pixels from the band's left edge, plus `of` times
+// the stage's width.
+export type Place = { px: number; of: number }
+
+export const placeAt = (px: number, of = 0): Place => ({ px, of })
+
+const ZERO = placeAt(0)
+const shift = (place: Place, px: number): Place => ({ px: place.px + px, of: place.of })
+const less = (one: Place, other: Place): Place => ({ px: one.px - other.px, of: one.of - other.of })
+const isSame = (one: Place, other: Place) => Math.abs(one.px - other.px) < 1e-6 && Math.abs(one.of - other.of) < 1e-9
+
+// The way from `from` to `to`, `t` of it gone; all of it lands on `to` itself.
+const between = (from: Place, to: Place, t: number): Place =>
+  t >= 1 ? to : { px: from.px + (to.px - from.px) * t, of: from.of + (to.of - from.of) * t }
+
+/**
+ * Where a place is on a stage `width` CSS pixels wide.
+ */
+export const pixelsOf = (place: Place, width: number) => place.px + place.of * width
+
+// A place as CSS, on the sprite's grid of 2 pixels.
+function cssOf(place: Place): string {
+  if (Math.abs(place.of) < 1e-9) {
+    return `${UNIT * Math.round(place.px / UNIT)}px`
+  }
+  const px = Number(place.px.toFixed(2))
+  const tail = px === 0 ? '' : px > 0 ? ` + ${px}px` : ` - ${-px}px`
+
+  return `round(nearest,calc(${Number(place.of.toFixed(5))} * var(--w)${tail}),${UNIT}px)`
+}
 
 type Legs = keyof typeof LEGS
 type Arms = keyof typeof ARMS
@@ -143,8 +190,8 @@ type Pal = keyof typeof SNOWMAN_ARMS
 type Placed<Pose extends string> = { x: number; y: number; pose: Pose }
 
 export type Frame = {
-  // The sprite's left edge along the track, in CSS pixels.
-  x: number
+  // The sprite's left edge along the track.
+  x: Place
   // How far it is off the ground, in CSS pixels.
   hop: number
   // The body sunk a pixel onto tucked legs: before a jump, and as it lands.
@@ -160,7 +207,8 @@ export type Frame = {
   breath: Breath
   // The snowman's right arm.
   pal: Pal
-  // The snowflake over the spark, and the robin, where they are when they are there.
+  // The snowflake over the spark, and the robin, where they are when they are there:
+  // both near home, so in plain pixels.
   flake: Placed<keyof typeof FLAKE> | null
   robin: Placed<keyof typeof ROBIN_BACK> | null
   // How far the spark tips as it shakes the flake off, in degrees.
@@ -170,7 +218,7 @@ export type Frame = {
 // Where the chase starts and ends, and so where every other reel starts or ends: at
 // home beside the spark, standing, looking ahead.
 export const HOME: Frame = {
-  x: UNIT,
+  x: placeAt(UNIT),
   hop: 0,
   crouch: false,
   legs: 'stand',
@@ -188,53 +236,40 @@ export const HOME: Frame = {
 
 const even = (value: number) => 2 * Math.round(value / 2)
 
-// What stands along a track `width` CSS pixels wide.
-export type Track = {
-  width: number
-  // The character's home, where the spark's box rests beside it, how far the spark
-  // rolls, and where the character stops short of it.
-  home: number
-  sparkHome: number
-  far: number
-  stop: number
-  // The snowman's left edge, and where the character stops to wave to it.
-  snowman: number
-  greet: number
-  // The ice, between these two.
-  iceStart: number
-  iceEnd: number
+// What stands along the track: the character's home and the spark's beside it, how far
+// the spark rolls and where the character stops short of it, the snowman and where the
+// character stops to wave to it, the ice, and the place Ramadan's lantern hangs.
+export const TRACK = {
+  home: HOME.x,
+  sparkHome: placeAt(UNIT + SIDE_BY_SIDE),
+  far: placeAt(-SPARK_BOX, 1),
+  stop: placeAt(-SPARK_BOX - SIDE_BY_SIDE, 1),
+  snowman: placeAt(0, 0.33),
+  greet: placeAt(12 * UNIT, 0.33),
+  iceStart: placeAt(0, 0.58),
+  iceEnd: placeAt(0, 0.74),
+  lantern: placeAt(0, 0.5),
+} as const
+
+/**
+ * Whether a sprite at `x` has a foot on the ice, on a stage `width` pixels wide: its
+ * feet span columns 4 to 13.
+ */
+export function isOnIce(x: Place, width: number): boolean {
+  const at = pixelsOf(x, width)
+
+  return at + 4 * UNIT < pixelsOf(TRACK.iceEnd, width) && at + 14 * UNIT > pixelsOf(TRACK.iceStart, width)
 }
 
-export function trackOf(width: number): Track {
-  const home = HOME.x
-  const sparkHome = home + SIDE_BY_SIDE
-  const far = width - SPARK_BOX
-  // A whole number of running steps, stopping short of the spark.
-  const stop = home + Math.floor((far - SIDE_BY_SIDE - home) / RUN_STEP) * RUN_STEP
-  const snowman = even(width * 0.33)
-
-  return {
-    width,
-    home,
-    sparkHome,
-    far,
-    stop,
-    snowman,
-    greet: snowman + 12 * UNIT,
-    iceStart: even(width * 0.58),
-    iceEnd: even(width * 0.74),
-  }
-}
-
-// Whether a sprite at `x` has a foot on the ice: its feet span columns 4 to 13.
-export function isOnIce(track: Track, x: number): boolean {
-  return x + 4 * UNIT < track.iceEnd && x + 14 * UNIT > track.iceStart
-}
+// How many frames a way takes at a pace, at the reference width: never a pixel more a
+// frame than the pace there.
+const framesFor = (from: Place, to: Place, pace: number) =>
+  Math.max(1, Math.ceil(Math.abs(pixelsOf(to, REFERENCE_WIDTH) - pixelsOf(from, REFERENCE_WIDTH)) / pace - 1e-9))
 
 export type Story = {
   frames: Frame[]
   // Where the spark's box rests, and the frames its two rolls start on and last.
-  spark: { home: number; far: number; out: number; outFrames: number; back: number; backFrames: number }
+  spark: { home: Place; far: Place; out: number; outFrames: number; back: number; backFrames: number }
 }
 
 // What the band plays: `intro` once from the moment it is drawn, then `loop` over and
@@ -268,16 +303,18 @@ type Script = {
   // Makes `change`, then holds the frame `count` times.
   put: (count: number, change?: Partial<Frame>) => void
   blink: () => void
-  // Walks or runs to `to`. Walking onto ice it slides instead, legs together and arms
-  // out, twice as fast, and skids a little way past the edge.
-  walk: (to: number, step: number, gait: Gait) => void
-  // A crouch, a frame for each height on the way up and down, and a crouch to land.
+  // Walks or runs to `to` in `count` frames, a stride a frame.
+  walk: (to: Place, count: number, gait: Gait) => void
+  // Slides to `to` in `count` frames, legs together and arms out.
+  slide: (to: Place, count: number) => void
+  // A crouch, a frame for each height on the way up and down, and a crouch to land,
+  // `dx` pixels along at each height.
   jump: (heights: readonly number[], dx: number, windUp: number) => void
   // Puffs of breath after running, drifting up and away.
   puff: () => void
 }
 
-function scriptFrom(start: Frame, track?: Track): Script {
+function scriptFrom(start: Frame): Script {
   const frames: Frame[] = []
   let now = start
 
@@ -296,35 +333,30 @@ function scriptFrom(start: Frame, track?: Track): Script {
     put(0, { eyes })
   }
 
-  const walk = (to: number, step: number, gait: Gait) => {
-    let skid = 0
+  const walk = (to: Place, count: number, gait: Gait) => {
+    const from = now.x
 
-    for (let index = 0; now.x !== to; ) {
-      const direction = Math.sign(to - now.x)
-      const room = Math.abs(to - now.x)
-      const isIce =
-        track !== undefined &&
-        step === WALK_STEP &&
-        (isOnIce(track, now.x) || isOnIce(track, now.x + direction * step))
+    for (let index = 1; index <= count; index++) {
+      const [legs, arms]: readonly [Legs, Arms] = gait[(index - 1) % gait.length] ?? ['stand', 'rest']
 
-      if (isIce || skid > 0) {
-        skid = isIce ? 2 : skid - 1
-        put(1, { x: now.x + direction * Math.min(isIce ? 2 * step : step, room), legs: 'stand', arms: 'out' })
-        continue
-      }
-      const [legs, arms]: readonly [Legs, Arms] = gait[index % gait.length] ?? ['stand', 'rest']
-
-      put(1, { x: now.x + direction * Math.min(step, room), legs, arms })
-      index++
+      put(1, { x: between(from, to, index / count), legs, arms })
     }
     put(0, { legs: 'stand', arms: 'rest' })
+  }
+
+  const slide = (to: Place, count: number) => {
+    const from = now.x
+
+    for (let index = 1; index <= count; index++) {
+      put(1, { x: between(from, to, index / count), legs: 'stand', arms: 'out' })
+    }
   }
 
   const jump = (heights: readonly number[], dx: number, windUp: number) => {
     put(windUp, { crouch: true, legs: 'tuck' })
 
     for (const hop of heights) {
-      put(1, { hop, x: now.x + dx, crouch: false, legs: 'stand', arms: 'up' })
+      put(1, { hop, x: shift(now.x, dx), crouch: false, legs: 'stand', arms: 'up' })
     }
     put(1, { hop: 0, crouch: true, legs: 'tuck', arms: 'rest' })
     put(0, { crouch: false, legs: 'stand' })
@@ -337,7 +369,17 @@ function scriptFrom(start: Frame, track?: Track): Script {
     put(0, { breath: 'none' })
   }
 
-  return { frames, now: () => now, put, blink, walk, jump, puff }
+  return { frames, now: () => now, put, blink, walk, slide, jump, puff }
+}
+
+// How far a frame moves the character, at the reference width.
+const paceAt = (frames: readonly Frame[], index: number, isLoop: boolean) => {
+  const frame = frames[index]
+  const before = index > 0 ? frames[index - 1] : isLoop ? frames[frames.length - 1] : undefined
+
+  return frame === undefined || before === undefined
+    ? 0
+    : pixelsOf(frame.x, REFERENCE_WIDTH) - pixelsOf(before.x, REFERENCE_WIDTH)
 }
 
 // The scarf's end streams behind whatever way the character moves, its tip flapping a
@@ -346,10 +388,9 @@ function dressed(frames: readonly Frame[], isLoop: boolean): Frame[] {
   let flaps = 0
 
   return frames.map((frame, index) => {
-    const before = index > 0 ? frames[index - 1] : isLoop ? frames[frames.length - 1] : undefined
-    const dx = before === undefined ? 0 : frame.x - before.x
+    const dx = paceAt(frames, index, isLoop)
 
-    if (dx === 0) {
+    if (Math.abs(dx) < 1e-9) {
       return { ...frame, scarf: 'still' }
     }
     flaps++
@@ -362,13 +403,12 @@ function dressed(frames: readonly Frame[], isLoop: boolean): Frame[] {
 }
 
 /**
- * The chase for a track `width` CSS pixels wide: one loop of the story.
+ * The chase: one loop of the story, along the whole track.
  */
-export function storyOf(width: number): Story {
-  const track = trackOf(width)
-  const script = scriptFrom(HOME, track)
-  const { put, blink, walk, jump, puff } = script
-  const { home, sparkHome, far, stop } = track
+export function storyOf(): Story {
+  const script = scriptFrom(HOME)
+  const { put, blink, walk, slide, jump, puff } = script
+  const { home, sparkHome, far, stop, greet, iceStart, iceEnd } = TRACK
 
   // At home beside the spark. A snowflake drifts down onto the spark while the
   // character watches it; the spark shakes it off, and the character bounces twice.
@@ -376,7 +416,7 @@ export function storyOf(width: number): Story {
   blink()
   put(seconds(0.4))
 
-  const flakeX = sparkHome + SPARK_BOX / 2 - UNIT
+  const flakeX = sparkHome.px + SPARK_BOX / 2 - UNIT
   // Resting on the topmost ray.
   const landY = SPARK_CENTER_Y - 9 - 3 * UNIT
   const sway = [0, 0, UNIT, UNIT, 0, 0, -UNIT, -UNIT]
@@ -413,7 +453,7 @@ export function storyOf(width: number): Story {
   put(0, { say: 'none' })
 
   // It scuttles after it, stops short and puffs in the cold.
-  walk(stop, RUN_STEP, RUN)
+  walk(stop, framesFor(home, stop, RUN_STEP), RUN)
   puff()
 
   // It pounces, and the spark darts back home the moment it crouches.
@@ -428,9 +468,16 @@ export function storyOf(width: number): Story {
   blink()
   put(seconds(0.3), { say: 'none' })
 
-  // Home it walks: across the ice in a slide, then a stop to wave to the snowman, who
-  // waves back.
-  walk(track.greet, WALK_STEP, WALK)
+  // Home it walks: up to the ice, across it in a slide that skids a little past its
+  // edge, then on to the snowman, who waves back when it waves.
+  const onto = shift(iceEnd, -4 * UNIT)
+  const off = shift(iceStart, -14 * UNIT)
+  const skid = shift(off, -2 * UNIT)
+
+  walk(onto, framesFor(script.now().x, onto, WALK_STEP), WALK)
+  slide(off, framesFor(onto, off, SLIDE_STEP))
+  slide(skid, 2)
+  walk(greet, framesFor(skid, greet, WALK_STEP), WALK)
   put(seconds(0.3), { eyes: 'left' })
 
   for (let wave = 0; wave < 2; wave++) {
@@ -439,7 +486,7 @@ export function storyOf(width: number): Story {
   }
   put(3, { pal: 'rest' })
   put(seconds(0.2), { eyes: 'ahead' })
-  walk(home, WALK_STEP, WALK)
+  walk(home, framesFor(greet, home, WALK_STEP), WALK)
 
   // Home again: a heart for the spark, both arms waved, and a last puff of breath.
   put(seconds(0.3), { eyes: 'right' })
@@ -453,8 +500,8 @@ export function storyOf(width: number): Story {
   puff()
   put(seconds(0.6), { eyes: 'ahead' })
 
-  // The spark keeps about one speed, whatever the track's length.
-  const distance = far - sparkHome
+  // The spark keeps about one speed at the reference width.
+  const distance = pixelsOf(far, REFERENCE_WIDTH) - pixelsOf(sparkHome, REFERENCE_WIDTH)
 
   return {
     frames: dressed(script.frames, true),
@@ -471,7 +518,7 @@ export function storyOf(width: number): Story {
 
 // Where the robin comes from, perches on the hat, and flies off to, in CSS pixels.
 const ROBIN_FROM = { x: -8 * UNIT, y: -2 * UNIT }
-const ROBIN_PERCH = { x: HOME.x + 5 * UNIT, y: TOP - 3 * UNIT }
+const ROBIN_PERCH = { x: HOME.x.px + 5 * UNIT, y: TOP - 3 * UNIT }
 const ROBIN_AWAY = { x: 45 * UNIT, y: -6 * UNIT }
 
 /**
@@ -644,10 +691,10 @@ export const ENDING_MS: Readonly<Record<Ending, number>> = {
 const SIGN: Readonly<Record<Ending, Say>> = { joy: 'done', puzzled: 'ask', closing: 'none' }
 
 /**
- * A mood's reel on a track `width` CSS pixels wide. An ending plays on into the chase,
- * so the band runs on as it should whenever the switch back to the chase comes.
+ * A mood's reel. An ending plays on into the chase, so the band runs on as it should
+ * whenever the switch back to the chase comes.
  */
-export function reelOf(width: number, mood: Mood, story: Story = storyOf(width)): Reel {
+export function reelOf(mood: Mood, story: Story = storyOf()): Reel {
   if (mood === 'working') {
     return workingOf()
   }
@@ -670,35 +717,33 @@ export function reelOf(width: number, mood: Mood, story: Story = storyOf(width))
   }
 }
 
-// The footprints of a chase: where a foot comes down as the character walks or runs,
-// one print to a slot 8 pixels wide and none on the ice, with the frames it is made on.
-export function printsOf(story: Story, track: Track): Map<number, number[]> {
-  const { frames } = story
-  const prints = new Map<number, number[]>()
+export type Print = { at: Place; frame: number }
+
+// The footprints of a chase: a print where a foot comes down in front, a stride at a
+// time walking and every other stride running, none on the ice, with the frame it is
+// made on.
+export function printsOf({ frames }: Story): Print[] {
+  const prints: Print[] = []
+  let strides = 0
 
   frames.forEach((frame, index) => {
-    const before = frames[(index - 1 + frames.length) % frames.length]
+    const dx = paceAt(frames, index, true)
 
-    if (before === undefined || before.x === frame.x || frame.hop > 0) {
+    if (Math.abs(dx) < 1e-9 || frame.hop > 0 || frame.legs !== 'a') {
       return
     }
-    const columns = frame.legs === 'a' ? [4, 11] : frame.legs === 'b' ? [6, 13] : []
+    strides++
 
-    for (const column of columns) {
-      const at = 4 * UNIT * Math.round((frame.x + column * UNIT) / (4 * UNIT))
-      const isOff = at < 0 || at + UNIT > track.width || (at + UNIT > track.iceStart && at < track.iceEnd)
+    if (Math.abs(dx) > WALK_STEP + 0.5 && strides % 2 === 0) {
+      return
+    }
+    const at = shift(frame.x, (dx > 0 ? 11 : 4) * UNIT)
+    const where = pixelsOf(at, REFERENCE_WIDTH)
+    const isOnTheIce =
+      where + UNIT > pixelsOf(TRACK.iceStart, REFERENCE_WIDTH) && where < pixelsOf(TRACK.iceEnd, REFERENCE_WIDTH)
 
-      if (isOff) {
-        continue
-      }
-      const made = prints.get(at) ?? []
-      const last = made[made.length - 1]
-
-      // A foot stays down for two frames: one print.
-      if (last === undefined || index - last > 2) {
-        made.push(index)
-      }
-      prints.set(at, made)
+    if (!isOnTheIce) {
+      prints.push({ at, frame: index })
     }
   })
 
@@ -727,7 +772,7 @@ function easedAt([x1, y1, x2, y2]: readonly [number, number, number, number], t:
   return at((low + high) / 2, y1, y2)
 }
 
-export type Ember = { x: number; y: number; at: number; fill: string }
+export type Ember = { at: Place; y: number; frame: number; fill: string }
 
 // The sparks the spark sheds darting home: one a frame through the fast part of the
 // dash, each a little off its path, centered where the spark is on that frame.
@@ -744,13 +789,12 @@ export function trailOf({ spark }: Story): Ember[] {
 
   for (let index = 1; index <= count; index++) {
     const along = easedAt(DART_CURVE, index / spark.backFrames)
-    const center = spark.far + (spark.home - spark.far) * along + SPARK_BOX / 2
     const [dx, dy] = offsets[index % offsets.length] ?? [0, 0]
 
     embers.push({
-      x: Math.round(center) + dx,
+      at: shift(between(spark.far, spark.home, along), SPARK_BOX / 2 + dx),
       y: SPARK_CENTER_Y + dy,
-      at: spark.back + index,
+      frame: spark.back + index,
       fill: index % 2 === 0 ? ORANGE : TRAIL_LIGHT,
     })
   }
@@ -790,41 +834,24 @@ function smoothOf(name: string, values: readonly string[]): string {
   return `${text}100%{${values[values.length - 1] ?? ''}}}`
 }
 
-// How long a footprint takes to melt, and how dark it is when new.
-const MELT = seconds(5)
-const PRINT_DEPTH = 0.7
-
-// A footprint's keyframes over a loop of `total` frames: dark the frame a foot comes
-// down on it, then fading evenly, around the end of the loop too. Only the frames
-// where the fading turns are written; the browser draws the straight lines between.
-function meltOf(name: string, made: readonly number[], total: number): string {
-  const depthAt = (frame: number) => {
-    let depth = 0
-
-    for (const stamp of made) {
-      const age = (((frame - stamp) % total) + total) % total
-
-      if (age < MELT) {
-        depth = Math.max(depth, PRINT_DEPTH * (1 - age / MELT))
-      }
-    }
-
-    return depth
-  }
-  const depths = Array.from({ length: total + 1 }, (_, frame) => depthAt(frame % total))
+// Keyframes for places along the track: held where it stands, and a straight glide at
+// a steady pace where it moves, from the frame the pace changes to the next; the
+// browser draws the glide between, on any width.
+function glidesOf(name: string, places: readonly Place[], end: Place, style: (place: Place) => string): string {
   let text = `@keyframes ${name}{`
 
-  depths.forEach((depth, frame) => {
-    const before = depths[frame - 1]
-    const after = depths[frame + 1]
-    const isTurn = before === undefined || after === undefined || Math.abs(depth - before - (after - depth)) > 1e-9
+  places.forEach((place, frame) => {
+    const before = places[frame - 1]
+    const pace = less(places[frame + 1] ?? end, place)
 
-    if (isTurn) {
-      text += `${percent(frame, total)}{opacity:${Number(depth.toFixed(2))}}`
+    if (before === undefined || !isSame(less(place, before), pace)) {
+      const timing = isSame(pace, ZERO) ? 'step-end' : 'linear'
+
+      text += `${percent(frame, places.length)}{${style(place)};animation-timing-function:${timing}}`
     }
   })
 
-  return `${text}}`
+  return `${text}100%{${style(end)}}}`
 }
 
 // The animations a part runs: its intro's, when the reel has one, then its loop's.
@@ -840,6 +867,34 @@ function tracksOf(name: string, reel: Reel, value: (frame: Frame) => string): st
   }
 
   return loop + heldOf(`${name}-in`, reel.intro.map(value), value(first))
+}
+
+// The character's way along the track over a reel, the intro's ending where the loop
+// begins.
+function walkerOf(reel: Reel): string {
+  const [first] = reel.loop
+  const start = first?.x ?? HOME.x
+  const style = (place: Place) => `transform:translate(${cssOf(place)},${TOP}px)`
+  const loop = glidesOf(
+    'walker',
+    reel.loop.map(frame => frame.x),
+    start,
+    style,
+  )
+
+  if (reel.intro.length === 0) {
+    return loop
+  }
+
+  return (
+    loop +
+    glidesOf(
+      'walker-in',
+      reel.intro.map(frame => frame.x),
+      start,
+      style,
+    )
+  )
 }
 
 type Layer = { css: string; svg: string }
@@ -883,11 +938,12 @@ const DART = `cubic-bezier(${DART_CURVE.join(',')})`
 const SPIN_UP = 'cubic-bezier(0.333,0,0.667,0.333)'
 const SPIN_DOWN = 'cubic-bezier(0.2,0.6,0.35,1)'
 
-// The chase's two rolls of the spark, out and back.
+// The chase's two rolls of the spark, out and back. It turns as a wheel of its size
+// would over the way at the reference width.
 function rollCssOf({ frames, spark }: Story): string {
   const total = frames.length
-  // As far round as a wheel of the spark's size turns over the distance.
-  const turn = Math.round(((spark.far - spark.home) / (2 * Math.PI * SPARK_RADIUS)) * 360)
+  const distance = pixelsOf(spark.far, REFERENCE_WIDTH) - pixelsOf(spark.home, REFERENCE_WIDTH)
+  const turn = Math.round((distance / (2 * Math.PI * SPARK_RADIUS)) * 360)
   const rollOf = (name: string, at: (isFar: boolean) => string) => {
     return (
       `@keyframes ${name}{0%{${at(false)}}` +
@@ -899,7 +955,7 @@ function rollCssOf({ frames, spark }: Story): string {
   }
 
   return (
-    rollOf('spark-x', isFar => `transform:translateX(${isFar ? spark.far : spark.home}px)`) +
+    rollOf('spark-x', isFar => `transform:translateX(${cssOf(isFar ? spark.far : spark.home)})`) +
     rollOf('spark-spin', isFar => `transform:rotate(${isFar ? turn : 0}deg)`)
   )
 }
@@ -907,9 +963,9 @@ function rollCssOf({ frames, spark }: Story): string {
 // The spark in each mood. In the chase it rolls, and wobbles under the snowflake. At
 // work it stays home, winds up into a whirl and glows. At a turn's end its glow fades
 // and it spins down to rest, hopping with the character for joy, and the chase's
-// moves wait for the intro to end.
+// moves wait for the intro to end. Asleep, it rests at home.
 function sparkCssOf(mood: Mood, reel: Reel, story: Story): string {
-  const home = `.spark-x{transform:translateX(${story.spark.home}px)`
+  const home = `.spark-x{transform:translateX(${cssOf(story.spark.home)})`
   const loop = secondsOf(story.frames.length)
   const intro = secondsOf(reel.intro.length)
   const tilt = smoothOf(
@@ -1000,17 +1056,17 @@ function raysOf(): string {
 // New Year's confetti: pieces falling the height of the band in pixel steps, each on a
 // loop of its own and drifting a little to one side. Held still, they are out of sight
 // over the band.
-function confettiOf(width: number): Layer {
+function confettiOf(): Layer {
   let svg = ''
 
-  for (let index = 0, count = Math.round(width / 22); index < count; index++) {
-    const x = even((((index * 37) % 100) / 100) * (width - 8) + 4)
+  for (let index = 0; index < 24; index++) {
+    const x = ((index * 37) % 97) + 1.5
     const loop = 3 + ((index * 7) % 5) * 0.4
     const delay = (((index * 13) % 10) / 10) * loop
     const drift = ((index % 3) - 1) * 2 * UNIT
 
     svg +=
-      `<rect class="confetti" x="${x}" y="${-UNIT}" width="${UNIT}" height="${UNIT}" fill="${CONFETTI[index % CONFETTI.length]}" ` +
+      `<rect class="confetti" x="${x}%" y="${-UNIT}" width="${UNIT}" height="${UNIT}" fill="${CONFETTI[index % CONFETTI.length]}" ` +
       `style="--drift:${drift}px;animation-duration:${loop.toFixed(1)}s;animation-delay:-${delay.toFixed(1)}s"/>`
   }
 
@@ -1024,14 +1080,15 @@ function confettiOf(width: number): Layer {
 
 // Ramadan's lantern, hanging from the top of the band halfway along, clear of the
 // character's head; its glass and glow flicker as a flame would.
-function lanternOf(width: number): Layer {
+function lanternOf(): Layer {
   return {
     svg:
-      `<g class="px" transform="translate(${even(width * 0.5)} 0)">` +
+      '<g class="px lantern">' +
       `<circle class="lantern-lit" cx="${2.5 * UNIT}" cy="${4 * UNIT}" r="${4 * UNIT}" fill="${LANTERN_GLOW}" fill-opacity="0.3"/>` +
       `<path fill="${LANTERN_GOLD}" d="${pathOf(LANTERN.frame)}"/>` +
       `<path class="lantern-lit" fill="${LANTERN_GLOW}" d="${pathOf(LANTERN.glass)}"/></g>`,
     css:
+      `.lantern{transform:translateX(${cssOf(TRACK.lantern)})}` +
       '.lantern-lit{animation:flicker 1.7s step-end infinite}' +
       '@keyframes flicker{0%{opacity:1}23%{opacity:0.78}31%{opacity:1}64%{opacity:0.88}71%{opacity:1}}',
   }
@@ -1065,28 +1122,32 @@ const INTERACTIVE = [
   '@media (prefers-reduced-motion: reduce){.poke,svg:active .poke{transform:none;transition:none}}',
 ].join('\n')
 
+// How long a footprint takes to melt, how dark it is when new, and how long a shed
+// spark takes to fade, in frames.
+const MELT = seconds(5)
+const PRINT_DEPTH = 0.7
+const EMBER_FADE = 5
+
 /**
- * The band's drawing in a mood, for a track `width` CSS pixels wide. `calm`, as the
- * person asks with /winter calm, holds it still on its still frame, with no answer to
- * the pointer. `occasion` dresses it: a party hat and confetti for New Year, a lantern
- * for Ramadan.
+ * The band's drawing in a mood, as wide as its frame. `calm`, as the person asks with
+ * /winter calm, holds it still on its still frame, with no answer to the pointer.
+ * `occasion` dresses it: a party hat and confetti for New Year, a lantern for Ramadan.
  */
 export function bandOf(
-  width: number,
   mood: Mood = 'idle',
   { calm = false, occasion = 'none' }: { calm?: boolean; occasion?: Occasion } = {},
 ): string {
-  const story = storyOf(width)
-  const track = trackOf(width)
-  const reel = reelOf(width, mood, story)
+  const story = storyOf()
+  const reel = reelOf(mood, story)
   const { intro, loop, poster } = reel
   const frames = [...intro, ...loop]
   // The spark glows at work and fades out of it, and has no glow in the chase or asleep.
   const isLit = mood !== 'idle' && mood !== 'sleep'
   // The footprints and the shed sparks follow the chase, which work and sleep have none of.
   const isChase = mood !== 'working' && mood !== 'sleep'
-  const chaseLoop = secondsOf(story.frames.length)
-  const chaseDelay = secondsOf(intro.length)
+  const chaseFrames = story.frames.length
+  const chaseLoop = secondsOf(chaseFrames)
+  const introSeconds = intro.length / FPS
 
   // With an intro, each part runs two animations: the intro once, holding its last
   // frame, then the loop for good from the moment the intro ends.
@@ -1152,38 +1213,43 @@ export function bandOf(
   ]
   const hasFlake = frames.some(frame => frame.flake !== null)
   const hasRobin = frames.some(frame => frame.robin !== null)
+  const foot = BAND_HEIGHT - GROUND
 
-  // The footprints in the snow, and the sparks shed on the dash home.
+  // The footprints in the snow, and the sparks shed on the dash home. Each runs one
+  // shared fade on the chase's clock, from the moment it is made: its delay is the
+  // frame it is made on, a loop back, past any intro.
+  const delayOf = (frame: number) => `${Number((introSeconds + (frame - chaseFrames) / FPS).toFixed(3))}s`
   let marks = ''
-  let marksCss = ''
   let embers = ''
 
   if (isChase) {
-    ;[...printsOf(story, track)].forEach(([at, made], index) => {
-      marksCss += meltOf(`print-${index}`, made, story.frames.length)
-      marks += `<rect class="print" x="${at}" y="${BAND_HEIGHT - GROUND}" width="${UNIT}" height="${GROUND}" fill="${PRINT}" style="animation-name:print-${index}"/>`
-    })
-    trailOf(story).forEach((ember, index) => {
-      const total = story.frames.length
-
-      marksCss +=
-        `@keyframes ember-${index}{0%{opacity:0}${percent(ember.at - 0.5, total)}{opacity:0}` +
-        `${percent(ember.at, total)}{opacity:1}${percent(ember.at + 5, total)}{opacity:0}100%{opacity:0}}`
-      embers += `<rect class="ember" x="${ember.x - 1}" y="${ember.y - 1}" width="${UNIT}" height="${UNIT}" fill="${ember.fill}" style="animation-name:ember-${index}"/>`
-    })
+    for (const print of printsOf(story)) {
+      marks +=
+        `<rect class="print" y="${foot}" width="${UNIT}" height="${GROUND}" fill="${PRINT}" ` +
+        `style="transform:translateX(${cssOf(print.at)});animation-delay:${delayOf(print.frame)}"/>`
+    }
+    for (const ember of trailOf(story)) {
+      embers +=
+        `<rect class="ember" y="${ember.y - 1}" width="${UNIT}" height="${UNIT}" fill="${ember.fill}" ` +
+        `style="transform:translateX(${cssOf(shift(ember.at, -1))});animation-delay:${delayOf(ember.frame)}"/>`
+    }
   }
 
   // What the occasion brings: confetti for New Year, a lantern for Ramadan.
-  const confetti = occasion === 'newyear' ? confettiOf(width) : { svg: '', css: '' }
-  const lantern = occasion === 'ramadan' ? lanternOf(width) : { svg: '', css: '' }
+  const confetti = occasion === 'newyear' ? confettiOf() : { svg: '', css: '' }
+  const lantern = occasion === 'ramadan' ? lanternOf() : { svg: '', css: '' }
+
   const css = [
+    // The stage: the frame's own width, between the two bounds, read by every place
+    // along the track; the drawing as wide as the stage and as tall as the band.
+    `svg{--w:max(${MIN_WIDTH}px,min(100vw,${MAX_WIDTH}px));width:var(--w);height:${BAND_HEIGHT}px;display:block;overflow:hidden}`,
     timing,
     '.hidden{opacity:0}',
     '.px,.print,.ember{shape-rendering:crispEdges}',
-    `.walker{transform:translate(${poster.x}px,${TOP}px);animation-name:${namesOf('walker', reel)}}`,
+    `.walker{transform:translate(${cssOf(poster.x)},${TOP}px);animation-name:${namesOf('walker', reel)}}`,
     `.jumper{transform:translateY(${-poster.hop}px);animation-name:${namesOf('jumper', reel)}}`,
     `.body{transform:translateY(${poster.crouch ? UNIT : 0}px);animation-name:${namesOf('body', reel)}}`,
-    tracksOf('walker', reel, frame => `transform:translate(${frame.x}px,${TOP}px)`),
+    walkerOf(reel),
     tracksOf('jumper', reel, frame => `transform:translateY(${-frame.hop}px)`),
     tracksOf('body', reel, frame => `transform:translateY(${frame.crouch ? UNIT : 0}px)`),
     hasFlake
@@ -1194,6 +1260,8 @@ export function bandOf(
       ? `.robin-at{${placeOf(poster.robin)};animation-name:${namesOf('robin-at', reel)}}` +
         tracksOf('robin-at', reel, frame => placeOf(frame.robin))
       : '',
+    `.snowman{transform:translate(${cssOf(TRACK.snowman)},${TOP}px)}`,
+    `.glint-at{transform:translateX(${cssOf(shift(TRACK.iceStart, 4 * UNIT))})}`,
     shadows.css,
     legs.css,
     arms.css,
@@ -1212,9 +1280,11 @@ export function bandOf(
     flake.css,
     ...robin.map(layer => layer.css),
     sparkCssOf(mood, reel, story),
-    // Each footprint and shed spark runs its own keyframes on the chase's clock.
-    `.print,.ember{opacity:0;animation-duration:${chaseLoop};animation-delay:${chaseDelay};animation-timing-function:linear;animation-iteration-count:infinite}`,
-    marksCss,
+    // Every footprint and shed spark shares one fade on the chase's clock.
+    `.print{opacity:0;animation:melt ${chaseLoop} linear infinite}`,
+    `@keyframes melt{0%{opacity:${PRINT_DEPTH}}${percent(MELT, chaseFrames)}{opacity:0}100%{opacity:0}}`,
+    `.ember{opacity:0;animation:ember ${chaseLoop} linear infinite}`,
+    `@keyframes ember{0%{opacity:1}${percent(EMBER_FADE, chaseFrames)}{opacity:0}100%{opacity:0}}`,
     confetti.css,
     lantern.css,
     // Now and then the light catches the ice.
@@ -1244,16 +1314,16 @@ export function bandOf(
     ? `<defs><radialGradient id="glow"><stop offset="0" stop-color="${ORANGE}" stop-opacity="0.65"/><stop offset="1" stop-color="${ORANGE}" stop-opacity="0"/></radialGradient></defs>`
     : ''
   const glow = isLit ? `<circle class="glow" r="${SPARK_RADIUS + 3}" fill="url(#glow)"/>` : ''
-  const foot = BAND_HEIGHT - GROUND
-  const ice = track.iceEnd - track.iceStart
+  const iceStart = `${Number((TRACK.iceStart.of * 100).toFixed(3))}%`
+  const iceWidth = `${Number(((TRACK.iceEnd.of - TRACK.iceStart.of) * 100).toFixed(3))}%`
   const ground =
-    `<rect class="px" x="0" y="${foot}" width="${width}" height="${GROUND / 2}" fill="${GROUND_EDGE}"/>` +
-    `<rect class="px" x="0" y="${foot + GROUND / 2}" width="${width}" height="${GROUND / 2}" fill="${GROUND_SNOW}"/>` +
-    `<rect class="px" x="${track.iceStart}" y="${foot}" width="${ice}" height="${GROUND / 2}" fill="${ICE_EDGE}"/>` +
-    `<rect class="px" x="${track.iceStart}" y="${foot + GROUND / 2}" width="${ice}" height="${GROUND / 2}" fill="${ICE}"/>` +
-    `<rect class="glint px" x="${track.iceStart + 4 * UNIT}" y="${foot}" width="${2 * UNIT}" height="${GROUND / 2}" fill="${GLINT}"/>`
+    `<rect class="px" x="0" y="${foot}" width="100%" height="${GROUND / 2}" fill="${GROUND_EDGE}"/>` +
+    `<rect class="px" x="0" y="${foot + GROUND / 2}" width="100%" height="${GROUND / 2}" fill="${GROUND_SNOW}"/>` +
+    `<rect class="px" x="${iceStart}" y="${foot}" width="${iceWidth}" height="${GROUND / 2}" fill="${ICE_EDGE}"/>` +
+    `<rect class="px" x="${iceStart}" y="${foot + GROUND / 2}" width="${iceWidth}" height="${GROUND / 2}" fill="${ICE}"/>` +
+    `<g class="glint-at"><rect class="glint px" y="${foot}" width="${2 * UNIT}" height="${GROUND / 2}" fill="${GLINT}"/></g>`
   const snowman =
-    `<g class="px" transform="translate(${track.snowman} ${TOP})">` +
+    '<g class="px snowman">' +
     `<path fill="${SNOW_WHITE}" d="${pathOf(SNOWMAN.snow)}"/>` +
     `<path fill="${SNOW_SHADE}" d="${pathOf(SNOWMAN.shade)}"/>` +
     `<path fill="${COAL}" d="${pathOf(SNOWMAN.coal)}"/>` +
@@ -1266,10 +1336,12 @@ export function bandOf(
   const clothes =
     hat + `<path fill="${KNIT_RED}" d="${pathOf(SCARF_WRAP)}"/>` + `<path fill="${STRIPE}" d="${pathOf(SCARF_STRIPES)}"/>`
 
-  // Back to front: the snow and its footprints, the snowman, the shadow, the shed
-  // sparks under the spark, the snowflake on it, the character and its laptop, and the
-  // robin on its hat.
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${BAND_HEIGHT}" width="${width}" height="${BAND_HEIGHT}">
+  // The width it says it has is the widest the stage can be, so the app gives the band
+  // the whole of its slot up to that; the CSS above then fits the stage to the frame.
+  // Back to front: the snow and its footprints, the snowman and the lantern, the shadow,
+  // the shed sparks under the spark, the snowflake on it and the confetti, the character
+  // and its laptop, and the robin on its hat.
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${MAX_WIDTH}" height="${BAND_HEIGHT}">
 <style>
 ${css}
 </style>${defs}
