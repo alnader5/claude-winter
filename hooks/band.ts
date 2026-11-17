@@ -1,38 +1,67 @@
 // The row above the prompt: Claude's pixel character and the small orange spark share
-// one track. The spark moves smoothly. The character moves the way an old game's sprite
-// does: a whole frame at a time, twelve frames a second, on a grid of pixels.
+// one snowy track. The spark moves smoothly. The character moves the way an old game's
+// sprite does: a whole frame at a time, twelve frames a second, on a grid of pixels.
+// It wears a knitted hat and a striped scarf, whose end streams behind it as it moves.
 //
 // The band has a mood, and each mood is a reel: an intro played once, then a loop.
 //
-// - idle, the chase: the two rest side by side, and the spark rolls off to the far end.
-//   The character starts ("!"), scuttles after it and pounces, and the spark darts back
-//   home under the jump. Puzzled ("?"), the character walks home, stops halfway for a
-//   look back, and greets the spark with a heart.
+// - idle, the chase: at home beside the spark, a snowflake drifts down onto the spark,
+//   which shakes it off. The spark rolls off to the far end; the character starts
+//   ("!"), scuttles after it, puffs in the cold and pounces, and the spark darts back
+//   home under the jump, shedding sparks. Puzzled ("?"), the character walks home: it
+//   slides across the ice with its arms out, waves to the snowman, who waves back, and
+//   greets the spark with a heart. Its footprints melt slowly in the snow.
 // - working, while Claude works: "!", a laptop comes up out of the snow, and the
-//   character types, stops to think ("..."), glances at the spark and types on. The
-//   spark winds up into a steady whirl and glows.
+//   character types, stops to think ("..."), glances at the spark and types on; a robin
+//   comes down onto its hat for a while. The spark winds up into a whirl and glows.
 // - joy, puzzled and closing, as a turn ends with an answer, without one, or stopped:
 //   the character folds the laptop away and cheers with a tick, wonders ("?") or just
 //   stands, while the spark spins down. Then the chase starts over.
 
 import {
   ARMS,
+  BEAK,
   BODY,
+  BREATH,
+  BREATH_GRAY,
+  CARROT,
+  COAL,
   EYE,
   EYES,
+  FLAKE,
+  FLAKE_BLUE,
+  HAT,
   HEART,
   HINGE,
   HINGE_GRAY,
+  KNIT_PINK,
+  KNIT_RED,
   LEGS,
   LID,
   LID_GRAY,
   LOGO,
   ORANGE,
+  ROBIN_BACK,
+  ROBIN_BEAK,
+  ROBIN_BREAST,
+  ROBIN_BROWN,
+  ROBIN_FEET,
+  ROBIN_RED,
   SAY,
+  SCARF_STRIPES,
+  SCARF_TAIL,
+  SCARF_TAIL_STRIPE,
+  SCARF_WRAP,
   SHADE,
   SHADOW,
+  SNOWMAN,
+  SNOWMAN_ARMS,
+  SNOW_SHADE,
+  SNOW_WHITE,
   SPRITE_HEIGHT,
   SPRITE_WIDTH,
+  STICK,
+  STRIPE,
   TICK,
   UNIT,
   balloonOf,
@@ -40,7 +69,7 @@ import {
 } from './sprite'
 import type { Laptop, Rect } from './sprite'
 
-export const BAND_HEIGHT = 32
+export const BAND_HEIGHT = 36
 
 // The character's frame rate.
 export const FPS = 12
@@ -57,13 +86,27 @@ export const ALT: Readonly<Record<Mood, string>> = {
   closing: "Claude's pixel character folding its laptop away beside the spark: the turn was stopped",
 }
 
-// The sprite's top row while it stands on the ground.
-const TOP = BAND_HEIGHT - SPRITE_HEIGHT
+// The snowy ground along the band's foot: a gray-blue edge over white, so it shows on
+// a light page and a dark one. The ice and the footprints are drawn on it.
+const GROUND = UNIT
+const GROUND_EDGE = '#a9bccf'
+const GROUND_SNOW = '#eef4fb'
+const ICE_EDGE = '#79b6dc'
+const ICE = '#cdeefc'
+const GLINT = '#ffffff'
+const PRINT = '#7f97b0'
+const TRAIL_LIGHT = '#f2a27f'
+
+// The sprite's top row while it stands on the snow.
+export const TOP = BAND_HEIGHT - GROUND - SPRITE_HEIGHT
+
+// How high it may jump: the pom-pom, two grid rows over its head, stays in the band.
+export const MAX_HOP = TOP - 2 * UNIT
 
 // The spark: a box 24 pixels square, its rays reaching 10 pixels from the center.
 const SPARK_BOX = 24
 const SPARK_RADIUS = 10
-const SPARK_CENTER_Y = BAND_HEIGHT - 1 - SPARK_RADIUS
+const SPARK_CENTER_Y = BAND_HEIGHT - GROUND - 1 - SPARK_RADIUS
 
 // From the sprite's left edge to the spark's box while the two stand side by side:
 // the spark's rays 6 pixels clear of the character's arm.
@@ -79,6 +122,12 @@ type Legs = keyof typeof LEGS
 type Arms = keyof typeof ARMS
 type Eyes = keyof typeof EYES
 type Say = keyof typeof SAY | 'none'
+type Scarf = keyof typeof SCARF_TAIL
+type Breath = keyof typeof BREATH | 'none'
+type Pal = keyof typeof SNOWMAN_ARMS
+
+// Something with a place of its own on the band, in CSS pixels, and a pose.
+type Placed<Pose extends string> = { x: number; y: number; pose: Pose }
 
 export type Frame = {
   // The sprite's left edge along the track, in CSS pixels.
@@ -92,6 +141,17 @@ export type Frame = {
   eyes: Eyes
   say: Say
   laptop: Laptop
+  // The scarf's end: hanging still, or streaming behind as the character moves.
+  scarf: Scarf
+  // A puff of breath in the cold.
+  breath: Breath
+  // The snowman's right arm.
+  pal: Pal
+  // The snowflake over the spark, and the robin, where they are when they are there.
+  flake: Placed<keyof typeof FLAKE> | null
+  robin: Placed<keyof typeof ROBIN_BACK> | null
+  // How far the spark tips as it shakes the flake off, in degrees.
+  tilt: number
 }
 
 // Where the chase starts and ends, and so where every other reel starts or ends: at
@@ -105,6 +165,57 @@ export const HOME: Frame = {
   eyes: 'ahead',
   say: 'none',
   laptop: 'none',
+  scarf: 'still',
+  breath: 'none',
+  pal: 'rest',
+  flake: null,
+  robin: null,
+  tilt: 0,
+}
+
+const even = (value: number) => 2 * Math.round(value / 2)
+
+// What stands along a track `width` CSS pixels wide.
+export type Track = {
+  width: number
+  // The character's home, where the spark's box rests beside it, how far the spark
+  // rolls, and where the character stops short of it.
+  home: number
+  sparkHome: number
+  far: number
+  stop: number
+  // The snowman's left edge, and where the character stops to wave to it.
+  snowman: number
+  greet: number
+  // The ice, between these two.
+  iceStart: number
+  iceEnd: number
+}
+
+export function trackOf(width: number): Track {
+  const home = HOME.x
+  const sparkHome = home + SIDE_BY_SIDE
+  const far = width - SPARK_BOX
+  // A whole number of running steps, stopping short of the spark.
+  const stop = home + Math.floor((far - SIDE_BY_SIDE - home) / RUN_STEP) * RUN_STEP
+  const snowman = even(width * 0.33)
+
+  return {
+    width,
+    home,
+    sparkHome,
+    far,
+    stop,
+    snowman,
+    greet: snowman + 12 * UNIT,
+    iceStart: even(width * 0.58),
+    iceEnd: even(width * 0.74),
+  }
+}
+
+// Whether a sprite at `x` has a foot on the ice: its feet span columns 4 to 13.
+export function isOnIce(track: Track, x: number): boolean {
+  return x + 4 * UNIT < track.iceEnd && x + 14 * UNIT > track.iceStart
 }
 
 export type Story = {
@@ -144,12 +255,16 @@ type Script = {
   // Makes `change`, then holds the frame `count` times.
   put: (count: number, change?: Partial<Frame>) => void
   blink: () => void
+  // Walks or runs to `to`. Walking onto ice it slides instead, legs together and arms
+  // out, twice as fast, and skids a little way past the edge.
   walk: (to: number, step: number, gait: Gait) => void
   // A crouch, a frame for each height on the way up and down, and a crouch to land.
   jump: (heights: readonly number[], dx: number, windUp: number) => void
+  // Puffs of breath after running, drifting up and away.
+  puff: () => void
 }
 
-function scriptFrom(start: Frame): Script {
+function scriptFrom(start: Frame, track?: Track): Script {
   const frames: Frame[] = []
   let now = start
 
@@ -169,11 +284,25 @@ function scriptFrom(start: Frame): Script {
   }
 
   const walk = (to: number, step: number, gait: Gait) => {
-    for (let index = 0; now.x !== to; index++) {
-      const [legs, arms]: readonly [Legs, Arms] = gait[index % gait.length] ?? ['stand', 'rest']
-      const dx = Math.sign(to - now.x) * Math.min(step, Math.abs(to - now.x))
+    let skid = 0
 
-      put(1, { x: now.x + dx, legs, arms })
+    for (let index = 0; now.x !== to; ) {
+      const direction = Math.sign(to - now.x)
+      const room = Math.abs(to - now.x)
+      const isIce =
+        track !== undefined &&
+        step === WALK_STEP &&
+        (isOnIce(track, now.x) || isOnIce(track, now.x + direction * step))
+
+      if (isIce || skid > 0) {
+        skid = isIce ? 2 : skid - 1
+        put(1, { x: now.x + direction * Math.min(isIce ? 2 * step : step, room), legs: 'stand', arms: 'out' })
+        continue
+      }
+      const [legs, arms]: readonly [Legs, Arms] = gait[index % gait.length] ?? ['stand', 'rest']
+
+      put(1, { x: now.x + direction * Math.min(step, room), legs, arms })
+      index++
     }
     put(0, { legs: 'stand', arms: 'rest' })
   }
@@ -188,28 +317,73 @@ function scriptFrom(start: Frame): Script {
     put(0, { crouch: false, legs: 'stand' })
   }
 
-  return { frames, now: () => now, put, blink, walk, jump }
+  const puff = () => {
+    put(2, { breath: 'puff1' })
+    put(2, { breath: 'puff2' })
+    put(3, { breath: 'puff3' })
+    put(0, { breath: 'none' })
+  }
+
+  return { frames, now: () => now, put, blink, walk, jump, puff }
+}
+
+// The scarf's end streams behind whatever way the character moves, its tip flapping a
+// frame at a time, and hangs still when the character stands.
+function dressed(frames: readonly Frame[], isLoop: boolean): Frame[] {
+  let flaps = 0
+
+  return frames.map((frame, index) => {
+    const before = index > 0 ? frames[index - 1] : isLoop ? frames[frames.length - 1] : undefined
+    const dx = before === undefined ? 0 : frame.x - before.x
+
+    if (dx === 0) {
+      return { ...frame, scarf: 'still' }
+    }
+    flaps++
+
+    const isUp = flaps % 2 === 1
+    const scarf: Scarf = dx > 0 ? (isUp ? 'blowL1' : 'blowL2') : isUp ? 'blowR1' : 'blowR2'
+
+    return { ...frame, scarf }
+  })
 }
 
 /**
  * The chase for a track `width` CSS pixels wide: one loop of the story.
  */
 export function storyOf(width: number): Story {
-  const script = scriptFrom(HOME)
-  const { put, blink, walk, jump } = script
+  const track = trackOf(width)
+  const script = scriptFrom(HOME, track)
+  const { put, blink, walk, jump, puff } = script
+  const { home, sparkHome, far, stop } = track
 
-  const home = HOME.x
-  const sparkHome = home + SIDE_BY_SIDE
-  const far = width - SPARK_BOX
-  // A whole number of running steps, stopping short of the spark.
-  const stop = home + Math.floor((far - SIDE_BY_SIDE - home) / RUN_STEP) * RUN_STEP
-
-  // At home beside the spark: blinks, a glance at it, two small bounces.
+  // At home beside the spark. A snowflake drifts down onto the spark while the
+  // character watches it; the spark shakes it off, and the character bounces twice.
   put(seconds(1.5))
   blink()
-  put(seconds(1.2))
-  put(seconds(1), { eyes: 'right' })
-  put(seconds(0.8), { eyes: 'ahead' })
+  put(seconds(0.4))
+
+  const flakeX = sparkHome + SPARK_BOX / 2 - UNIT
+  // Resting on the topmost ray.
+  const landY = SPARK_CENTER_Y - 9 - 3 * UNIT
+  const sway = [0, 0, UNIT, UNIT, 0, 0, -UNIT, -UNIT]
+
+  for (let y = -3 * UNIT, step = 0; y < landY; y += UNIT, step++) {
+    put(2, {
+      flake: { x: flakeX + (sway[step % sway.length] ?? 0), y, pose: 'whole' },
+      eyes: y < landY / 2 ? 'up' : 'right',
+    })
+  }
+  put(seconds(0.5), { flake: { x: flakeX, y: landY, pose: 'whole' }, eyes: 'right' })
+
+  const flicks: readonly Frame['flake'][] = [
+    { x: flakeX + 2 * UNIT, y: landY - 2 * UNIT, pose: 'whole' },
+    { x: flakeX + 4 * UNIT, y: landY - 4 * UNIT, pose: 'bit' },
+    { x: flakeX + 6 * UNIT, y: landY - 6 * UNIT, pose: 'bit' },
+  ]
+
+  ;[12, -10, 8, -6, 3, 0].forEach((tilt, index) => put(1, { tilt, flake: flicks[index] ?? null }))
+  put(seconds(0.4), { eyes: 'ahead' })
   jump([2, 4, 4, 2], 0, 1)
   put(2)
   jump([2, 4, 4, 2], 0, 1)
@@ -225,14 +399,14 @@ export function storyOf(width: number): Story {
   put(seconds(1), { crouch: false, legs: 'stand' })
   put(0, { say: 'none' })
 
-  // It scuttles after it and stops short.
+  // It scuttles after it, stops short and puffs in the cold.
   walk(stop, RUN_STEP, RUN)
-  put(seconds(0.6))
+  puff()
 
   // It pounces, and the spark darts back home the moment it crouches.
   const back = script.frames.length
 
-  jump([6, 10, 12, 12, 10, 6], RUN_STEP, 2)
+  jump([6, 8, 10, 10, 8, 6], RUN_STEP, 2)
 
   // Missed: "?", a look after the spark, a blink.
   put(seconds(0.3))
@@ -241,28 +415,36 @@ export function storyOf(width: number): Story {
   blink()
   put(seconds(0.3), { say: 'none' })
 
-  // It walks home, with a look back halfway.
-  walk(home + UNIT * Math.round((script.now().x - home) / (2 * UNIT)), WALK_STEP, WALK)
-  put(seconds(0.6), { eyes: 'right' })
-  blink()
+  // Home it walks: across the ice in a slide, then a stop to wave to the snowman, who
+  // waves back.
+  walk(track.greet, WALK_STEP, WALK)
   put(seconds(0.3), { eyes: 'left' })
+
+  for (let wave = 0; wave < 2; wave++) {
+    put(3, { arms: 'up', pal: 'rest' })
+    put(3, { arms: 'rest', pal: 'wave' })
+  }
+  put(3, { pal: 'rest' })
+  put(seconds(0.2), { eyes: 'ahead' })
   walk(home, WALK_STEP, WALK)
 
-  // Home again: a heart, and both arms waved.
+  // Home again: a heart for the spark, both arms waved, and a last puff of breath.
   put(seconds(0.3), { eyes: 'right' })
 
   for (let wave = 0; wave < 3; wave++) {
     put(3, { arms: 'up', say: 'love' })
     put(3, { arms: 'rest' })
   }
-  put(seconds(0.6))
-  put(seconds(0.6), { say: 'none', eyes: 'ahead' })
+  put(seconds(0.4))
+  put(0, { say: 'none' })
+  puff()
+  put(seconds(0.6), { eyes: 'ahead' })
 
   // The spark keeps about one speed, whatever the track's length.
   const distance = far - sparkHome
 
   return {
-    frames: script.frames,
+    frames: dressed(script.frames, true),
     spark: {
       home: sparkHome,
       far,
@@ -273,6 +455,11 @@ export function storyOf(width: number): Story {
     },
   }
 }
+
+// Where the robin comes from, perches on the hat, and flies off to, in CSS pixels.
+const ROBIN_FROM = { x: -8 * UNIT, y: -2 * UNIT }
+const ROBIN_PERCH = { x: HOME.x + 5 * UNIT, y: TOP - 3 * UNIT }
+const ROBIN_AWAY = { x: 45 * UNIT, y: -6 * UNIT }
 
 /**
  * At work, at home beside the spark: the laptop comes up, then the typing loops.
@@ -307,6 +494,20 @@ export function workingOf(): Reel {
     put(0, { eyes: 'down', say: 'none' })
   }
 
+  // The robin in a straight line, a wingbeat a frame.
+  const fly = (from: { x: number; y: number }, to: { x: number; y: number }, count: number, eyes: Eyes) => {
+    for (let index = 1; index <= count; index++) {
+      put(1, {
+        robin: {
+          x: even(from.x + ((to.x - from.x) * index) / count),
+          y: even(from.y + ((to.y - from.y) * index) / count),
+          pose: index % 2 === 0 ? 'fly2' : 'fly1',
+        },
+        eyes,
+      })
+    }
+  }
+
   type(12)
   put(3)
   think(4, 4, 8)
@@ -320,6 +521,25 @@ export function workingOf(): Reel {
   type(8)
   put(3)
   think(3, 3, 6)
+  blink()
+  put(4)
+
+  // A robin comes down onto the hat. The character stops to look up at it while it
+  // pecks at the wool, and goes back to work once it has flown off.
+  type(10)
+  put(2)
+  fly(ROBIN_FROM, ROBIN_PERCH, 12, 'up')
+
+  for (let peck = 0; peck < 3; peck++) {
+    put(5, { robin: { ...ROBIN_PERCH, pose: 'perch' } })
+    put(3, { robin: { ...ROBIN_PERCH, pose: 'peck' } })
+  }
+  put(4, { robin: { ...ROBIN_PERCH, pose: 'perch' } })
+  fly(ROBIN_PERCH, ROBIN_AWAY, 12, 'right')
+  put(2, { robin: null, eyes: 'down' })
+  type(12)
+  put(3)
+  think(4, 4, 8)
   blink()
   put(4)
 
@@ -404,6 +624,94 @@ export function reelOf(width: number, mood: Mood, story: Story = storyOf(width))
   }
 }
 
+// The footprints of a chase: where a foot comes down as the character walks or runs,
+// one print to a slot 8 pixels wide and none on the ice, with the frames it is made on.
+export function printsOf(story: Story, track: Track): Map<number, number[]> {
+  const { frames } = story
+  const prints = new Map<number, number[]>()
+
+  frames.forEach((frame, index) => {
+    const before = frames[(index - 1 + frames.length) % frames.length]
+
+    if (before === undefined || before.x === frame.x || frame.hop > 0) {
+      return
+    }
+    const columns = frame.legs === 'a' ? [4, 11] : frame.legs === 'b' ? [6, 13] : []
+
+    for (const column of columns) {
+      const at = 4 * UNIT * Math.round((frame.x + column * UNIT) / (4 * UNIT))
+      const isOff = at < 0 || at + UNIT > track.width || (at + UNIT > track.iceStart && at < track.iceEnd)
+
+      if (isOff) {
+        continue
+      }
+      const made = prints.get(at) ?? []
+      const last = made[made.length - 1]
+
+      // A foot stays down for two frames: one print.
+      if (last === undefined || index - last > 2) {
+        made.push(index)
+      }
+      prints.set(at, made)
+    }
+  })
+
+  return prints
+}
+
+// The spark's dash home, as a CSS timing function.
+const DART_CURVE = [0.2, 0.7, 0.3, 1] as const
+
+// How far along a cubic-bezier timing function is at the time `t`, both 0 to 1.
+function easedAt([x1, y1, x2, y2]: readonly [number, number, number, number], t: number): number {
+  const at = (p: number, a: number, b: number) => 3 * (1 - p) * (1 - p) * p * a + 3 * (1 - p) * p * p * b + p * p * p
+  let low = 0
+  let high = 1
+
+  for (let index = 0; index < 40; index++) {
+    const middle = (low + high) / 2
+
+    if (at(middle, x1, x2) < t) {
+      low = middle
+    } else {
+      high = middle
+    }
+  }
+
+  return at((low + high) / 2, y1, y2)
+}
+
+export type Ember = { x: number; y: number; at: number; fill: string }
+
+// The sparks the spark sheds darting home: one a frame through the fast part of the
+// dash, each a little off its path, centered where the spark is on that frame.
+export function trailOf({ spark }: Story): Ember[] {
+  const offsets = [
+    [0, -3],
+    [3, 2],
+    [1, 4],
+    [4, -2],
+    [2, 1],
+  ] as const
+  const embers: Ember[] = []
+  const count = Math.round(spark.backFrames * 0.7)
+
+  for (let index = 1; index <= count; index++) {
+    const along = easedAt(DART_CURVE, index / spark.backFrames)
+    const center = spark.far + (spark.home - spark.far) * along + SPARK_BOX / 2
+    const [dx, dy] = offsets[index % offsets.length] ?? [0, 0]
+
+    embers.push({
+      x: Math.round(center) + dx,
+      y: SPARK_CENTER_Y + dy,
+      at: spark.back + index,
+      fill: index % 2 === 0 ? ORANGE : TRAIL_LIGHT,
+    })
+  }
+
+  return embers
+}
+
 const percent = (frame: number, total: number) => `${Number(((frame / total) * 100).toFixed(4))}%`
 const secondsOf = (frames: number) => `${Number((frames / FPS).toFixed(3))}s`
 
@@ -434,6 +742,43 @@ function smoothOf(name: string, values: readonly string[]): string {
   })
 
   return `${text}100%{${values[values.length - 1] ?? ''}}}`
+}
+
+// How long a footprint takes to melt, and how dark it is when new.
+const MELT = seconds(5)
+const PRINT_DEPTH = 0.7
+
+// A footprint's keyframes over a loop of `total` frames: dark the frame a foot comes
+// down on it, then fading evenly, around the end of the loop too. Only the frames
+// where the fading turns are written; the browser draws the straight lines between.
+function meltOf(name: string, made: readonly number[], total: number): string {
+  const depthAt = (frame: number) => {
+    let depth = 0
+
+    for (const stamp of made) {
+      const age = (((frame - stamp) % total) + total) % total
+
+      if (age < MELT) {
+        depth = Math.max(depth, PRINT_DEPTH * (1 - age / MELT))
+      }
+    }
+
+    return depth
+  }
+  const depths = Array.from({ length: total + 1 }, (_, frame) => depthAt(frame % total))
+  let text = `@keyframes ${name}{`
+
+  depths.forEach((depth, frame) => {
+    const before = depths[frame - 1]
+    const after = depths[frame + 1]
+    const isTurn = before === undefined || after === undefined || Math.abs(depth - before - (after - depth)) > 1e-9
+
+    if (isTurn) {
+      text += `${percent(frame, total)}{opacity:${Number(depth.toFixed(2))}}`
+    }
+  })
+
+  return `${text}}`
 }
 
 // The animations a part runs: its intro's, when the reel has one, then its loop's.
@@ -481,9 +826,13 @@ function layerOf<K extends string>(
   return { css, svg }
 }
 
+// Where a placed thing is drawn; off the band while it is not there.
+const placeOf = (placed: { x: number; y: number } | null) =>
+  placed === null ? 'transform:translate(-40px,-40px)' : `transform:translate(${placed.x}px,${placed.y}px)`
+
 // The spark rolls out smoothly, and darts back fast at first, slowing as it nears home.
 const ROLL = 'cubic-bezier(0.45,0,0.55,1)'
-const DART = 'cubic-bezier(0.2,0.7,0.3,1)'
+const DART = `cubic-bezier(${DART_CURVE.join(',')})`
 // Speeding up evenly from rest into the whirl; and out of it, a flick slowing to rest.
 const SPIN_UP = 'cubic-bezier(0.333,0,0.667,0.333)'
 const SPIN_DOWN = 'cubic-bezier(0.2,0.6,0.35,1)'
@@ -509,19 +858,26 @@ function rollCssOf({ frames, spark }: Story): string {
   )
 }
 
-// The spark in each mood. In the chase it rolls. At work it stays home, winds up into a
-// whirl and glows. At a turn's end its glow fades and it spins down to rest, hopping
-// with the character for joy, and the chase's rolls wait for the intro to end.
+// The spark in each mood. In the chase it rolls, and wobbles under the snowflake. At
+// work it stays home, winds up into a whirl and glows. At a turn's end its glow fades
+// and it spins down to rest, hopping with the character for joy, and the chase's
+// moves wait for the intro to end.
 function sparkCssOf(mood: Mood, reel: Reel, story: Story): string {
   const home = `.spark-x{transform:translateX(${story.spark.home}px)`
   const loop = secondsOf(story.frames.length)
   const intro = secondsOf(reel.intro.length)
+  const tilt = smoothOf(
+    'spark-tilt',
+    story.frames.map(frame => `transform:rotate(${frame.tilt}deg)`),
+  )
 
   if (mood === 'idle') {
     return [
       `${home};animation:spark-x ${loop} linear infinite}`,
       `.spark-spin{animation:spark-spin ${loop} linear infinite}`,
+      `.spark-tilt{animation:spark-tilt ${loop} linear infinite}`,
       rollCssOf(story),
+      tilt,
     ].join('\n')
   }
 
@@ -547,7 +903,9 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story): string {
     `${home};animation:spark-x ${loop} linear ${intro} infinite}`,
     `.spark-spin{animation:spark-settle ${settle} ${SPIN_DOWN},spark-spin ${loop} linear ${intro} infinite}`,
     '@keyframes spark-settle{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}',
+    `.spark-tilt{animation:spark-tilt ${loop} linear ${intro} infinite}`,
     rollCssOf(story),
+    tilt,
     '.glow{opacity:0;animation:glow-out 0.6s ease-in}',
     '@keyframes glow-out{from{opacity:0.5;transform:scale(0.9)}to{opacity:0;transform:scale(0.6)}}',
   ]
@@ -594,9 +952,15 @@ function raysOf(): string {
  */
 export function bandOf(width: number, mood: Mood = 'idle'): string {
   const story = storyOf(width)
+  const track = trackOf(width)
   const reel = reelOf(width, mood, story)
   const { intro, loop, poster } = reel
+  const frames = [...intro, ...loop]
   const isLit = mood !== 'idle'
+  // The footprints and the shed sparks follow the chase, which the work has none of.
+  const isChase = mood !== 'working'
+  const chaseLoop = secondsOf(story.frames.length)
+  const chaseDelay = secondsOf(intro.length)
 
   // With an intro, each part runs two animations: the intro once, holding its last
   // frame, then the loop for good from the moment the intro ends.
@@ -617,6 +981,9 @@ export function bandOf(width: number, mood: Mood = 'idle'): string {
   const legs = layerOf('legs', LEGS, frame => frame.legs, reel, ORANGE)
   const arms = layerOf('arms', ARMS, frame => frame.arms, reel, ORANGE)
   const eyes = layerOf('eyes', EYES, frame => frame.eyes, reel, EYE)
+  const tail = layerOf('tail', SCARF_TAIL, frame => frame.scarf, reel, KNIT_RED)
+  const tailStripe = layerOf('stripe', SCARF_TAIL_STRIPE, frame => frame.scarf, reel, STRIPE)
+  const breath = layerOf('breath', BREATH, frame => frame.breath, reel, BREATH_GRAY)
   const words = layerOf(
     'say',
     {
@@ -641,31 +1008,82 @@ export function bandOf(width: number, mood: Mood = 'idle'): string {
     HINGE_GRAY,
   )
   const logo = layerOf('logo', LOGO, frame => frame.laptop, reel, ORANGE)
+  const pal = layerOf('pal', SNOWMAN_ARMS, frame => frame.pal, reel, STICK)
+  const flake = layerOf('flake', FLAKE, frame => frame.flake?.pose ?? 'none', reel, FLAKE_BLUE)
+  const robinPose = (frame: Frame) => frame.robin?.pose ?? 'none'
+  const robin = [
+    layerOf('robin-back', ROBIN_BACK, robinPose, reel, ROBIN_BROWN),
+    layerOf('robin-breast', ROBIN_BREAST, robinPose, reel, ROBIN_RED),
+    layerOf('robin-beak', ROBIN_BEAK, robinPose, reel, BEAK),
+    layerOf('robin-feet', ROBIN_FEET, robinPose, reel, EYE),
+  ]
+  const hasFlake = frames.some(frame => frame.flake !== null)
+  const hasRobin = frames.some(frame => frame.robin !== null)
+
+  // The footprints in the snow, and the sparks shed on the dash home.
+  let marks = ''
+  let marksCss = ''
+  let embers = ''
+
+  if (isChase) {
+    ;[...printsOf(story, track)].forEach(([at, made], index) => {
+      marksCss += meltOf(`print-${index}`, made, story.frames.length)
+      marks += `<rect class="print" x="${at}" y="${BAND_HEIGHT - GROUND}" width="${UNIT}" height="${GROUND}" fill="${PRINT}" style="animation-name:print-${index}"/>`
+    })
+    trailOf(story).forEach((ember, index) => {
+      const total = story.frames.length
+
+      marksCss +=
+        `@keyframes ember-${index}{0%{opacity:0}${percent(ember.at - 0.5, total)}{opacity:0}` +
+        `${percent(ember.at, total)}{opacity:1}${percent(ember.at + 5, total)}{opacity:0}100%{opacity:0}}`
+      embers += `<rect class="ember" x="${ember.x - 1}" y="${ember.y - 1}" width="${UNIT}" height="${UNIT}" fill="${ember.fill}" style="animation-name:ember-${index}"/>`
+    })
+  }
 
   const css = [
     timing,
     '.hidden{opacity:0}',
-    '.px{shape-rendering:crispEdges}',
+    '.px,.print,.ember{shape-rendering:crispEdges}',
     `.walker{transform:translate(${poster.x}px,${TOP}px);animation-name:${namesOf('walker', reel)}}`,
     `.jumper{transform:translateY(${-poster.hop}px);animation-name:${namesOf('jumper', reel)}}`,
     `.body{transform:translateY(${poster.crouch ? UNIT : 0}px);animation-name:${namesOf('body', reel)}}`,
     tracksOf('walker', reel, frame => `transform:translate(${frame.x}px,${TOP}px)`),
     tracksOf('jumper', reel, frame => `transform:translateY(${-frame.hop}px)`),
     tracksOf('body', reel, frame => `transform:translateY(${frame.crouch ? UNIT : 0}px)`),
+    hasFlake
+      ? `.flake-at{${placeOf(poster.flake)};animation-name:${namesOf('flake-at', reel)}}` +
+        tracksOf('flake-at', reel, frame => placeOf(frame.flake))
+      : '',
+    hasRobin
+      ? `.robin-at{${placeOf(poster.robin)};animation-name:${namesOf('robin-at', reel)}}` +
+        tracksOf('robin-at', reel, frame => placeOf(frame.robin))
+      : '',
     shadows.css,
     legs.css,
     arms.css,
     eyes.css,
+    tail.css,
+    tailStripe.css,
+    breath.css,
     words.css,
     love.css,
     tick.css,
     lid.css,
     hinge.css,
     logo.css,
+    pal.css,
+    flake.css,
+    ...robin.map(layer => layer.css),
     sparkCssOf(mood, reel, story),
+    // Each footprint and shed spark runs its own keyframes on the chase's clock.
+    `.print,.ember{opacity:0;animation-duration:${chaseLoop};animation-delay:${chaseDelay};animation-timing-function:linear;animation-iteration-count:infinite}`,
+    marksCss,
+    // Now and then the light catches the ice.
+    '.glint{opacity:0;animation:glint 5s step-end infinite}',
+    '@keyframes glint{0%{opacity:0}86%{opacity:0.9}92%{opacity:0}}',
     `.ray{stroke:${ORANGE};stroke-width:2.1;stroke-linecap:round;animation:breathe ${mood === 'working' ? 1.3 : 2.6}s ease-in-out infinite}`,
     '@keyframes breathe{0%,100%{transform:scaleX(1)}50%{transform:scaleX(0.7)}}',
-    '@media (prefers-reduced-motion: reduce){.m,.ray,.spark-x,.spark-hop,.spark-wind,.spark-spin,.glow{animation:none}}',
+    '@media (prefers-reduced-motion: reduce){.m,.ray,.spark-x,.spark-hop,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint{animation:none}}',
   ].join('\n')
 
   // The glow: soft orange, fading out from the spark's heart.
@@ -673,15 +1091,41 @@ export function bandOf(width: number, mood: Mood = 'idle'): string {
     ? `<defs><radialGradient id="glow"><stop offset="0" stop-color="${ORANGE}" stop-opacity="0.65"/><stop offset="1" stop-color="${ORANGE}" stop-opacity="0"/></radialGradient></defs>`
     : ''
   const glow = isLit ? `<circle class="glow" r="${SPARK_RADIUS + 3}" fill="url(#glow)"/>` : ''
+  const foot = BAND_HEIGHT - GROUND
+  const ice = track.iceEnd - track.iceStart
+  const ground =
+    `<rect class="px" x="0" y="${foot}" width="${width}" height="${GROUND / 2}" fill="${GROUND_EDGE}"/>` +
+    `<rect class="px" x="0" y="${foot + GROUND / 2}" width="${width}" height="${GROUND / 2}" fill="${GROUND_SNOW}"/>` +
+    `<rect class="px" x="${track.iceStart}" y="${foot}" width="${ice}" height="${GROUND / 2}" fill="${ICE_EDGE}"/>` +
+    `<rect class="px" x="${track.iceStart}" y="${foot + GROUND / 2}" width="${ice}" height="${GROUND / 2}" fill="${ICE}"/>` +
+    `<rect class="glint px" x="${track.iceStart + 4 * UNIT}" y="${foot}" width="${2 * UNIT}" height="${GROUND / 2}" fill="${GLINT}"/>`
+  const snowman =
+    `<g class="px" transform="translate(${track.snowman} ${TOP})">` +
+    `<path fill="${SNOW_WHITE}" d="${pathOf(SNOWMAN.snow)}"/>` +
+    `<path fill="${SNOW_SHADE}" d="${pathOf(SNOWMAN.shade)}"/>` +
+    `<path fill="${COAL}" d="${pathOf(SNOWMAN.coal)}"/>` +
+    `<path fill="${CARROT}" d="${pathOf(SNOWMAN.carrot)}"/>` +
+    `${pal.svg}</g>`
+  const clothes =
+    `<path fill="${KNIT_RED}" d="${pathOf(HAT.crown)}"/>` +
+    `<path fill="${KNIT_PINK}" d="${pathOf([...HAT.cuff, ...HAT.pom])}"/>` +
+    `<path fill="${KNIT_RED}" d="${pathOf(SCARF_WRAP)}"/>` +
+    `<path fill="${STRIPE}" d="${pathOf(SCARF_STRIPES)}"/>`
 
-  // The shadow lies under the spark, the spark rolls behind the character, and the
-  // laptop stands in front of it.
+  // Back to front: the snow and its footprints, the snowman, the shadow, the shed
+  // sparks under the spark, the snowflake on it, the character and its laptop, and the
+  // robin on its hat.
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${BAND_HEIGHT}" width="${width}" height="${BAND_HEIGHT}">
 <style>
 ${css}
 </style>${defs}
+${ground}${marks}
+${snowman}
 <g class="m walker px" fill-opacity="0.22">${shadows.svg}</g>
-<g class="spark-x"><g class="spark-hop"><g transform="translate(${SPARK_BOX / 2} ${SPARK_CENTER_Y})">${glow}<g class="spark-wind"><g class="spark-spin">${raysOf()}</g></g></g></g></g>
-<g class="m walker px"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${arms.svg}${eyes.svg}</g>${words.svg}${love.svg}${tick.svg}</g>${lid.svg}${hinge.svg}${logo.svg}</g>
+${embers}
+<g class="spark-x"><g class="spark-hop"><g transform="translate(${SPARK_BOX / 2} ${SPARK_CENTER_Y})">${glow}<g class="spark-tilt"><g class="spark-wind"><g class="spark-spin">${raysOf()}</g></g></g></g></g></g>
+${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}
+<g class="m walker px"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}</g>${breath.svg}${words.svg}${love.svg}${tick.svg}</g>${lid.svg}${hinge.svg}${logo.svg}</g>
+${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}
 </svg>`
 }

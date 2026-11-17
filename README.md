@@ -2,8 +2,8 @@
 
 A winter look for Claude Code: snowy-day colors in light mode and winter-night colors in dark mode, a slow snowfall behind the conversation, and Claude's pixel character in a small band above the prompt.
 
-- **Between turns** the character chases a small orange spark along the band, pounces, misses, and walks home to greet it with a heart.
-- **While Claude works** a laptop comes up out of the snow. The character types, stops to think (`...`) and glances at the spark, which whirls and glows.
+- **Between turns** the character, in a knitted hat and a striped scarf, chases a small orange spark along a snowy track. A snowflake lands on the spark, which shakes it off. The character runs after the spark, puffs in the cold, pounces and misses while the spark darts home trailing sparks, then slides back across the ice with its arms out and waves to a snowman on the way. Its footprints melt slowly in the snow.
+- **While Claude works** a laptop comes up out of the snow. The character types, stops to think (`...`) and glances at the spark, which whirls and glows. Now and then a robin comes down onto its hat.
 - **When a turn ends** the laptop folds away. The character jumps for joy under a green tick when Claude has answered, wonders (`?`) when the turn ended without an answer, and just stands when you stopped it. Then the chase starts again.
 
 The snowfall and the band are drawn in the Claude desktop app and the mobile app. The character moves a whole frame at a time on a pixel grid, the band holds still where the system asks for reduced motion, and each mood has its own description for screen readers.
@@ -30,7 +30,7 @@ To take a newer version later, run `claude plugin update winter` and start a new
 
 ## بالعربية
 
-مود شتوي لـ Claude Code: ألوان يوم ثلجي في الوضع الفاتح وليلة شتوية في الوضع الداكن، وثلج يتساقط ببطء خلف المحادثة، وشخصية Claude البكسلية في شريط صغير فوق صندوق الكتابة. بين الأدوار تطارد الشخصية الشرارة البرتقالية، وبينما يعمل Claude تكتب على حاسوب صغير وتتوقف لتفكّر، ثم تقفز فرحاً تحت علامة ✓ خضراء حين يصل الرد، أو تُظهر «؟» إن انتهى الدور بلا رد.
+مود شتوي لـ Claude Code: ألوان يوم ثلجي في الوضع الفاتح وليلة شتوية في الوضع الداكن، وثلج يتساقط ببطء خلف المحادثة، وشخصية Claude البكسلية في شريط صغير فوق صندوق الكتابة. بين الأدوار تطارد الشخصية، بقبعتها الصوفية ووشاحها المخطط، الشرارة البرتقالية على طريق ثلجي: تسقط ندفة ثلج على الشرارة فتنفضها، وتنزلق الشخصية على الجليد بذراعين ممدودتين وتلوّح لرجل الثلج، وتذوب آثار أقدامها ببطء. وبينما يعمل Claude تكتب على حاسوب صغير وتتوقف لتفكّر، ويحطّ عصفور على قبعتها أحياناً، ثم تقفز فرحاً تحت علامة ✓ خضراء حين يصل الرد، أو تُظهر «؟» إن انتهى الدور بلا رد.
 
 للتثبيت، اكتب في Claude Code داخل الطرفية:
 

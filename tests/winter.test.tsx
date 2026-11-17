@@ -1,10 +1,25 @@
 import type { ThemeSetArgs } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { ALT, BAND_HEIGHT, ENDING_MS, HOME, bandOf, endingOf, reelOf, storyOf, workingOf } from '../hooks/band'
+import {
+  ALT,
+  BAND_HEIGHT,
+  ENDING_MS,
+  HOME,
+  MAX_HOP,
+  bandOf,
+  endingOf,
+  isOnIce,
+  printsOf,
+  reelOf,
+  storyOf,
+  trackOf,
+  trailOf,
+  workingOf,
+} from '../hooks/band'
 import type { Frame } from '../hooks/band'
 import { checkColors } from '../hooks/make-colors.js'
-import { LID_GRAY, SPRITE_HEIGHT, SPRITE_WIDTH, TICK, UNIT } from '../hooks/sprite'
+import { CARROT, KNIT_RED, LID_GRAY, SPRITE_WIDTH, STRIPE, TICK, UNIT } from '../hooks/sprite'
 
 const GLASS = { blur: 4, opacity: 0.64 }
 
@@ -33,16 +48,14 @@ const BAND = {
 const SVG_LIMIT = 131072
 
 // The rules every frame keeps, in every mood: on the grid and on the track, no higher
-// than the band, a balloon only on the ground, and no frame leaping across the track.
+// than the pom-pom allows, a balloon only on the ground, and no frame leaping across.
 function expectOnTrack(frames: readonly Frame[], width: number, isLoop: boolean) {
-  const lowest = BAND_HEIGHT - SPRITE_HEIGHT
-
   frames.forEach((frame, index) => {
     const next = isLoop ? frames[(index + 1) % frames.length] : frames[index + 1]
 
     expect(frame.x % UNIT).toBe(0)
     expect(frame.x >= 0 && frame.x + SPRITE_WIDTH <= width).toBe(true)
-    expect(frame.hop >= 0 && frame.hop <= lowest).toBe(true)
+    expect(frame.hop >= 0 && frame.hop <= MAX_HOP).toBe(true)
     expect(frame.say === 'none' || frame.hop === 0).toBe(true)
     expect(Math.abs((next?.x ?? frame.x) - frame.x) <= 2 * UNIT).toBe(true)
   })
@@ -109,6 +122,10 @@ test("Claude's pixel character and the spark share the band above the prompt", a
     expect(source).toContain('animation-timing-function:step-end')
     // The spark rolls to the far end of its own track and no further.
     expect(source).toContain(`translateX(${width - 24}px)`)
+    // Dressed for the cold, beside a snowman.
+    expect(source).toContain(KNIT_RED)
+    expect(source).toContain(STRIPE)
+    expect(source).toContain(CARROT)
     // Nothing of the work is drawn in the chase: no laptop, no glow.
     expect(source).not.toContain(LID_GRAY)
     expect(source).not.toContain('class="glow"')
@@ -139,6 +156,92 @@ test('the character moves on the pixel grid and stays on its track', () => {
   }
 })
 
+test('a snowflake lands on the spark, which shakes it off before it rolls away', () => {
+  const { frames, spark } = storyOf(320)
+  const shaken = frames.findIndex(frame => frame.tilt !== 0)
+
+  // It comes down from over the band, and rests on the spark until the spark shakes.
+  expect(frames.find(frame => frame.flake !== null)?.flake?.y).toBeLessThan(0)
+  expect(frames[shaken - 1]?.flake?.pose).toBe('whole')
+  expect(frames[shaken - 1]?.eyes).toBe('right')
+  // Gone, and the spark still again, well before the spark rolls out.
+  expect(frames.slice(shaken + 6).every(frame => frame.flake === null && frame.tilt === 0)).toBe(true)
+  expect(shaken + 6 < spark.out).toBe(true)
+})
+
+test('it puffs in the cold after running, and its scarf streams behind it', () => {
+  const { frames } = storyOf(320)
+  const arrived = frames.findIndex(frame => frame.x === trackOf(320).stop)
+
+  expect(frames.slice(arrived, arrived + 8).some(frame => frame.breath !== 'none')).toBe(true)
+
+  frames.forEach((frame, index) => {
+    const before = frames[(index - 1 + frames.length) % frames.length] ?? frame
+    const dx = frame.x - before.x
+
+    // Out to the left while it moves right, to the right while it moves left.
+    expect(dx > 0 ? frame.scarf.startsWith('blowL') : dx < 0 ? frame.scarf.startsWith('blowR') : frame.scarf === 'still').toBe(
+      true,
+    )
+  })
+})
+
+test('the walk home slides across the ice and stops to wave to the snowman', () => {
+  for (const width of [320, 220]) {
+    const track = trackOf(width)
+    const { frames } = storyOf(width)
+    const slides = frames.filter(frame => frame.arms === 'out')
+
+    // Sliding happens on the ice, or skidding a step or two past its edge.
+    expect(slides.length > 0).toBe(true)
+    expect(slides.every(frame => [-8, -6, -4, -2, 0, 2, 4, 6, 8].some(d => isOnIce(track, frame.x + d)))).toBe(true)
+    // Walking home over the ice is all sliding: no step is taken on it.
+    frames.forEach((frame, index) => {
+      const before = frames[index - 1]
+
+      if (before !== undefined && frame.x < before.x && isOnIce(track, frame.x)) {
+        expect(frame.arms).toBe('out')
+      }
+    })
+
+    // It waves at the snowman's side, looking at it, and the snowman waves back there.
+    const waves = frames.filter(frame => frame.pal === 'wave')
+
+    expect(waves.length > 0).toBe(true)
+    expect(waves.every(frame => frame.x === track.greet && frame.eyes === 'left')).toBe(true)
+    expect(frames.some(frame => frame.x === track.greet && frame.arms === 'up')).toBe(true)
+    // The snowman stands clear of the spark at home, and the ice clear of both stops.
+    expect(track.snowman - 3 * UNIT > track.sparkHome + 24).toBe(true)
+    expect(isOnIce(track, track.greet) || isOnIce(track, track.stop)).toBe(false)
+  }
+})
+
+test('footprints melt in the snow, never on the ice, and the spark sheds sparks on its dash', () => {
+  for (const width of [320, 220]) {
+    const track = trackOf(width)
+    const story = storyOf(width)
+    const prints = printsOf(story, track)
+    const embers = trailOf(story)
+    const source = bandOf(width, 'idle')
+
+    expect(prints.size > 10).toBe(true)
+    for (const at of prints.keys()) {
+      expect(at + UNIT <= track.iceStart || at >= track.iceEnd).toBe(true)
+    }
+    // Shed on the dash home, one a frame, each about where the spark is then.
+    expect(embers.length > 5).toBe(true)
+    expect(embers.every(ember => ember.at > story.spark.back && ember.at < story.spark.back + story.spark.backFrames)).toBe(
+      true,
+    )
+    expect(embers.every(ember => ember.x > story.spark.home && ember.x < story.spark.far + 24 + 4 * UNIT)).toBe(true)
+    expect((source.match(/class="print"/g) ?? []).length).toBe(prints.size)
+    expect((source.match(/class="ember"/g) ?? []).length).toBe(embers.length)
+  }
+
+  // The work leaves no tracks.
+  expect(bandOf(320, 'working')).not.toContain('class="print"')
+})
+
 test('while Claude works, the character types at a laptop and the spark whirls', async $ => {
   for (const [surface, width] of [
     ['desktop', 320],
@@ -165,7 +268,6 @@ test('while Claude works, the character types at a laptop and the spark whirls',
 
   // From home, "!" before the laptop comes up, and the laptop open as the loop begins.
   expect(intro[0]).toEqual({ ...HOME, crouch: true, legs: 'tuck', say: 'alert' })
-  expect(intro.slice(0, intro.findIndex(frame => frame.laptop !== 'none')).length).toBeGreaterThan(0)
   expect(intro[intro.length - 1]).toMatchObject({ laptop: 'open', say: 'none' })
   // The whole loop at the laptop, on the ground at home: typing with both hands, and
   // thinking all three dots through.
@@ -175,6 +277,20 @@ test('while Claude works, the character types at a laptop and the spark whirls',
   expect(poster).toMatchObject({ laptop: 'open' })
   expectOnTrack(intro, 220, false)
   expectOnTrack(loop, 220, true)
+})
+
+test('a robin visits the hat while Claude works, and never sits over its thoughts', () => {
+  const { loop } = workingOf()
+  const visit = loop.filter(frame => frame.robin !== null)
+
+  expect(visit.some(frame => frame.robin?.pose === 'perch')).toBe(true)
+  expect(visit.some(frame => frame.robin?.pose === 'peck')).toBe(true)
+  // Up at it while it sits there, and no "..." under it.
+  expect(visit.filter(frame => frame.robin?.pose === 'perch').every(frame => frame.eyes === 'up')).toBe(true)
+  expect(visit.every(frame => frame.say === 'none')).toBe(true)
+  // It comes and goes within the loop.
+  expect(loop[0]?.robin).toBe(null)
+  expect(loop[loop.length - 1]?.robin).toBe(null)
 })
 
 test('each ending folds the laptop away and lands where the chase begins', () => {

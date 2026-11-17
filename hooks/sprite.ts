@@ -1,9 +1,11 @@
 // Claude's pixel character, the orange creature of Claude Code's welcome screen, on a
 // grid of 18 by 10 square pixels, each UNIT CSS pixels across: a wide body, two tall
-// eyes, an arm on each side and four short legs. While Claude works it has a laptop.
+// eyes, an arm on each side and four short legs. For the winter it wears a knitted hat
+// and a striped scarf, and while Claude works it has a laptop.
 //
 // Each part comes in the variants a frame can show. The band switches whole variants
-// on and off, as a sprite sheet does, so every move lands on the grid.
+// on and off, as a sprite sheet does, so every move lands on the grid. The band's
+// other pixel things are drawn on the same grid: the snowman, a robin and a snowflake.
 
 export const UNIT = 2
 export const SPRITE_WIDTH = 18 * UNIT
@@ -18,11 +20,79 @@ export const SHADE = '#0b1220'
 export const LID_GRAY = '#93a3b6'
 export const HINGE_GRAY = '#64748b'
 export const TICK = '#2f9e5b'
+// The knitted things: a deep red that stands apart from the orange, a pink for the
+// hat's cuff and pom-pom, and the scarf's pale stripes.
+export const KNIT_RED = '#c23a45'
+export const KNIT_PINK = '#ef8a92'
+export const STRIPE = '#f6d2d5'
+// Breath in the cold air.
+export const BREATH_GRAY = '#d3dfeb'
+// The snowman: snow and its shading, coal, a carrot and two sticks.
+export const SNOW_WHITE = '#f4f8fc'
+export const SNOW_SHADE = '#b3c3d5'
+export const COAL = '#2b2f36'
+export const CARROT = '#e8833a'
+export const STICK = '#7a5536'
+// A robin.
+export const ROBIN_BROWN = '#6e5240'
+export const ROBIN_RED = '#e0623a'
+export const BEAK = '#e9b13b'
+// The snowflake that lands on the spark.
+export const FLAKE_BLUE = '#9cbad6'
 
 // [column, row, width, height], in pixels of the grid.
 export type Rect = readonly [number, number, number, number]
 
 export const BODY: readonly Rect[] = [[3, 0, 12, 8]]
+
+// The hat sits on the top two rows of the body, its crown slouched to one side with a
+// pom-pom on the end, clear of what the character says over its head.
+export const HAT = {
+  crown: [
+    [3, 0, 12, 1],
+    [12, -1, 3, 1],
+  ],
+  cuff: [[3, 1, 12, 1]],
+  pom: [[14, -2, 2, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+// The scarf goes round under the eyes, below where the laptop's lid comes up to.
+export const SCARF_WRAP: readonly Rect[] = [[3, 5, 12, 1]]
+export const SCARF_STRIPES: readonly Rect[] = [
+  [5, 5, 1, 1],
+  [9, 5, 1, 1],
+  [13, 5, 1, 1],
+]
+
+// The scarf's end: hanging in front while the character stands, and streaming out
+// behind an arm while it moves, its tip flapping up and down a frame at a time.
+export const SCARF_TAIL = {
+  still: [[11, 6, 2, 2]],
+  blowL1: [
+    [-2, 5, 3, 1],
+    [-3, 4, 1, 1],
+  ],
+  blowL2: [
+    [-2, 5, 3, 1],
+    [-3, 6, 1, 1],
+  ],
+  blowR1: [
+    [17, 5, 3, 1],
+    [20, 4, 1, 1],
+  ],
+  blowR2: [
+    [17, 5, 3, 1],
+    [20, 6, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const SCARF_TAIL_STRIPE = {
+  still: [[11, 7, 2, 1]],
+  blowL1: [[-1, 5, 1, 1]],
+  blowL2: [[-1, 5, 1, 1]],
+  blowR1: [[18, 5, 1, 1]],
+  blowR2: [[18, 5, 1, 1]],
+} as const satisfies Record<keyof typeof SCARF_TAIL, readonly Rect[]>
 
 // Drawn with the body, so they sink with it when it crouches.
 export const ARMS = {
@@ -52,6 +122,11 @@ export const ARMS = {
     [1, 4, 2, 2],
     [15, 5, 2, 2],
   ],
+  // Held out straight for balance, sliding on the ice.
+  out: [
+    [0, 4, 3, 1],
+    [15, 4, 3, 1],
+  ],
 } as const satisfies Record<string, readonly Rect[]>
 
 export const EYES = {
@@ -80,7 +155,7 @@ export const EYES = {
     [5, 4, 1, 1],
     [12, 4, 1, 1],
   ],
-  // Thinking.
+  // Thinking, or watching something overhead.
   up: [
     [5, 1, 1, 2],
     [12, 1, 1, 2],
@@ -126,11 +201,25 @@ export const LEGS = {
   ],
 } as const satisfies Record<string, readonly Rect[]>
 
-// The shadow on the ground, narrower the higher it jumps.
+// The shadow on the snow under the feet, narrower the higher it jumps.
 export const SHADOW = {
-  wide: [[2, 9, 14, 1]],
-  mid: [[4, 9, 10, 1]],
-  small: [[6, 9, 6, 1]],
+  wide: [[2, 10, 14, 1]],
+  mid: [[4, 10, 10, 1]],
+  small: [[6, 10, 6, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+// Puffs of breath, drifting up from the side of its face after a run.
+export const BREATH = {
+  puff1: [[17, 4, 1, 1]],
+  puff2: [
+    [17, 3, 2, 1],
+    [18, 2, 1, 1],
+  ],
+  puff3: [
+    [18, 0, 1, 1],
+    [19, 1, 1, 1],
+    [20, 2, 1, 1],
+  ],
 } as const satisfies Record<string, readonly Rect[]>
 
 // The laptop, seen from behind as the character types at it: the lid stands in front
@@ -162,6 +251,108 @@ export const LOGO = {
 } as const satisfies Record<string, readonly Rect[]>
 
 export type Laptop = keyof typeof LID | 'none'
+
+// The snowman, on the grid of the character's own size and standing on the same snow:
+// a top hat, a head with coal eyes and a carrot pointing right, a round body with two
+// coal buttons, and shading down its right side so it shows on a white page too.
+export const SNOWMAN = {
+  snow: [
+    [2, 0, 4, 1],
+    [1, 1, 6, 3],
+    [2, 4, 4, 1],
+    [1, 5, 6, 1],
+    [0, 6, 8, 3],
+    [1, 9, 6, 1],
+  ],
+  shade: [
+    [6, 1, 1, 3],
+    [5, 4, 1, 1],
+    [6, 5, 1, 1],
+    [7, 6, 1, 3],
+    [6, 9, 1, 1],
+  ],
+  coal: [
+    [2, -3, 4, 2],
+    [1, -1, 6, 1],
+    [2, 2, 1, 1],
+    [4, 2, 1, 1],
+    [3, 6, 1, 1],
+    [3, 8, 1, 1],
+  ],
+  carrot: [[4, 3, 4, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+// Its stick arms: the left one still, the right one lifted to wave back.
+export const SNOWMAN_ARMS = {
+  rest: [
+    [-1, 5, 1, 1],
+    [-2, 5, 1, 1],
+    [-3, 4, 1, 1],
+    [8, 5, 2, 1],
+    [10, 4, 1, 1],
+  ],
+  wave: [
+    [-1, 5, 1, 1],
+    [-2, 5, 1, 1],
+    [-3, 4, 1, 1],
+    [8, 5, 1, 1],
+    [9, 4, 1, 1],
+    [10, 3, 1, 1],
+    [11, 2, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+// A robin facing right, in four poses: two wingbeats, perched, and pecking. Its
+// colors are drawn one at a time, so each is a table of the poses.
+export const ROBIN_BACK = {
+  fly1: [
+    [1, 0, 2, 1],
+    [-1, 1, 2, 1],
+    [0, -1, 1, 1],
+  ],
+  fly2: [
+    [1, 0, 2, 1],
+    [-1, 1, 2, 1],
+    [0, 2, 1, 1],
+  ],
+  perch: [
+    [1, 0, 2, 1],
+    [-1, 1, 2, 1],
+  ],
+  peck: [
+    [2, 0, 2, 1],
+    [-1, 1, 2, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const ROBIN_BREAST = {
+  fly1: [[1, 1, 2, 1]],
+  fly2: [[1, 1, 2, 1]],
+  perch: [[1, 1, 2, 1]],
+  peck: [[1, 1, 2, 1]],
+} as const satisfies Record<keyof typeof ROBIN_BACK, readonly Rect[]>
+
+export const ROBIN_BEAK = {
+  fly1: [[3, 0, 1, 1]],
+  fly2: [[3, 0, 1, 1]],
+  perch: [[3, 0, 1, 1]],
+  peck: [[4, 1, 1, 1]],
+} as const satisfies Record<keyof typeof ROBIN_BACK, readonly Rect[]>
+
+export const ROBIN_FEET = {
+  perch: [[1, 2, 1, 1]],
+  peck: [[1, 2, 1, 1]],
+} as const satisfies Partial<Record<keyof typeof ROBIN_BACK, readonly Rect[]>>
+
+// The snowflake whole, and the last bit of it as it is flicked away.
+export const FLAKE = {
+  whole: [
+    [1, 0, 1, 1],
+    [0, 1, 3, 1],
+    [1, 2, 1, 1],
+  ],
+  bit: [[1, 1, 1, 1]],
+} as const satisfies Record<string, readonly Rect[]>
 
 // What it says, in pixels over its head: rows of '#', all of one width.
 export const SAY = {
