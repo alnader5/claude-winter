@@ -30,9 +30,16 @@ import {
   ARMS,
   BEAK,
   BODY,
+  BOOK,
+  BOOK_BLUE,
+  BOOK_LINES,
+  BOOK_TURN,
+  BOX,
+  BOX_DARK,
   BREATH,
   BREATH_GRAY,
   CARROT,
+  CODE_BLUE,
   COAL,
   CONFETTI,
   EYE,
@@ -40,20 +47,30 @@ import {
   FACE,
   FLAKE,
   FLAKE_BLUE,
+  GLYPHS,
   HAT,
   HEART,
+  HELPER,
+  HELPER_HATS,
+  HELPER_LEGS,
   HINGE,
   HINGE_GRAY,
+  INK,
   KNIT_PINK,
   KNIT_RED,
+  KNOB,
+  KNOB_RED,
   LANTERN,
   LANTERN_GLOW,
   LANTERN_GOLD,
   LEGS,
+  LEVER,
   LID,
   LID_GRAY,
   LOGO,
   ORANGE,
+  PAGE,
+  PARCEL,
   PARTY_GOLD,
   PARTY_HAT,
   PARTY_PURPLE,
@@ -68,6 +85,11 @@ import {
   SCARF_TAIL,
   SCARF_TAIL_STRIPE,
   SCARF_WRAP,
+  SCOPE,
+  SCOPE_LENS,
+  SCOPE_LENS_BLUE,
+  SCREEN,
+  SCREEN_DARK,
   SHADE,
   SHADOW,
   SNOWMAN,
@@ -78,14 +100,17 @@ import {
   SPRITE_WIDTH,
   STICK,
   STRIPE,
+  TERMINAL_GREEN,
   TICK,
   UNIT,
   WAVE,
   balloonOf,
   pathOf,
 } from './sprite'
-import type { Laptop, Rect } from './sprite'
+import type { Book, Box, Glyph, Laptop, Rect, Scope, Screen } from './sprite'
 import type { Occasion } from './time'
+import { FRESH_WORK, MAX_HELPERS } from './work'
+import type { Activity, Work } from './work'
 
 export const BAND_HEIGHT = 36
 
@@ -144,8 +169,16 @@ const RUN_STEP = 2 * UNIT
 const WALK_STEP = UNIT
 const SLIDE_STEP = 2 * UNIT
 
-// While Claude works the spark whirls a turn in this many seconds.
-const WHIRL_SECONDS = 2.4
+// While Claude works the spark whirls a turn in this many seconds: fastest as code
+// flies to it, slowest over a book; and it holds still while a question waits.
+const WHIRL_SECONDS: Readonly<Record<Activity, number>> = {
+  think: 2.4,
+  edit: 1.6,
+  read: 3.2,
+  run: 2,
+  web: 2.4,
+  wait: 0,
+}
 
 // A place along the track: `px` CSS pixels from the band's left edge, plus `of` times
 // the stage's width.
@@ -213,6 +246,13 @@ export type Frame = {
   eyes: Eyes
   say: Say
   laptop: Laptop
+  // The other props of the work: a book, a terminal box (its lever up or down) and its
+  // screen's lines, binoculars, and code flying off the laptop.
+  book: Book
+  box: Box
+  screen: Screen
+  scope: Scope
+  glyph: Glyph
   // The scarf's end: hanging still, or streaming behind as the character moves.
   scarf: Scarf
   // A puff of breath in the cold.
@@ -238,6 +278,11 @@ export const HOME: Frame = {
   eyes: 'ahead',
   say: 'none',
   laptop: 'none',
+  book: 'none',
+  box: 'none',
+  screen: 'none',
+  scope: 'none',
+  glyph: 'none',
   scarf: 'still',
   breath: 'none',
   pal: 'rest',
@@ -533,23 +578,38 @@ const ROBIN_FROM = { x: -8 * UNIT, y: -2 * UNIT }
 const ROBIN_PERCH = { x: HOME.x.px + 5 * UNIT, y: TOP - 3 * UNIT }
 const ROBIN_AWAY = { x: 45 * UNIT, y: -6 * UNIT }
 
-/**
- * At work, at home beside the spark: the laptop comes up, then the typing loops.
- */
-export function workingOf(): Reel {
-  const intro = scriptFrom(HOME)
+// The prop for a kind of work, brought out at home.
+function setOut({ put }: Script, activity: Activity): void {
+  switch (activity) {
+    case 'think':
+    case 'edit':
+      // The laptop comes up out of the snow, and it looks down at it.
+      put(1, { laptop: 'closed' })
+      put(1, { laptop: 'half' })
+      put(1, { laptop: 'open', eyes: 'down' })
+      put(2)
+      return
+    case 'read':
+      put(2, { book: 'p1', arms: 'hold', eyes: 'readL' })
+      return
+    case 'run':
+      put(2, { box: 'up', screen: 's1', eyes: 'down' })
+      return
+    case 'web':
+      put(2, { arms: 'up' })
+      put(2, { arms: 'scope', scope: 'ahead', eyes: 'none' })
+      return
+    case 'wait':
+      // The laptop set down shut, and a hand up: a question for the person.
+      put(1, { laptop: 'closed', eyes: 'ahead' })
+      put(2, { arms: 'hand', say: 'ask' })
+      return
+  }
+}
 
-  // "!": there is work. The laptop comes up out of the snow, and it looks down at it.
-  intro.put(1, { crouch: true, legs: 'tuck', say: 'alert' })
-  intro.put(4, { crouch: false, legs: 'stand' })
-  intro.put(1, { say: 'none', laptop: 'closed' })
-  intro.put(1, { laptop: 'half' })
-  intro.put(1, { laptop: 'open', eyes: 'down' })
-  intro.put(2)
-
-  const loop = scriptFrom(intro.now())
-  const { put, blink } = loop
-
+// Thinking and writing at the laptop: typing, the dots of a thought, a glance at the
+// spark, and now and then a robin on the hat.
+function thinkAt({ put, blink }: Script): void {
   // A key a hand, two frames a key: six keys a second.
   const type = (keys: number) => {
     for (let key = 0; key < keys; key++) {
@@ -614,6 +674,146 @@ export function workingOf(): Reel {
   think(4, 4, 8)
   blink()
   put(4)
+}
+
+// "<>" leaving the laptop for the spark once a second, a step up every two frames.
+const CODE_FLIGHT: readonly Glyph[] = ['g1', 'g1', 'g2', 'g2', 'g3', 'g3', 'none', 'none', 'none', 'none', 'none', 'none']
+
+// Editing files: typing a key a frame, code flying off to the spark, a look after it.
+function editAt({ put, blink }: Script): void {
+  const burst = (keys: number) => {
+    for (let key = 0; key < keys; key++) {
+      put(1, { arms: key % 2 === 0 ? 'tapL' : 'tapR', glyph: CODE_FLIGHT[key % CODE_FLIGHT.length] ?? 'none' })
+    }
+    put(0, { arms: 'rest', glyph: 'none' })
+  }
+
+  burst(36)
+  put(2)
+  put(seconds(0.6), { eyes: 'right' })
+  put(2, { eyes: 'down' })
+  burst(24)
+  blink()
+  burst(36)
+  put(3)
+}
+
+// Reading files: eyes along a line and back to the next, a page turned now and then,
+// a glance at the spark.
+function readAt({ put, blink }: Script): void {
+  const line = () => {
+    put(5, { eyes: 'readL' })
+    put(5, { eyes: 'readR' })
+  }
+  const turn = (to: Book) => {
+    put(2, { book: 'turn', eyes: 'down' })
+    put(0, { book: to })
+  }
+
+  line()
+  line()
+  line()
+  turn('p2')
+  line()
+  line()
+  put(0, { eyes: 'down' })
+  blink()
+  line()
+  put(seconds(0.6), { eyes: 'right' })
+  turn('p1')
+  line()
+  line()
+}
+
+// The terminal's lines in turn, one more at each pull of the lever.
+const SCREENS: readonly Screen[] = ['s2', 's3', 's1']
+
+// Running a command: the lever pulled down and let up, the screen scrolling at each
+// pull, a glance at the spark.
+function runAt({ put, blink }: Script): void {
+  let lines = 0
+  const pull = (times: number) => {
+    for (let index = 0; index < times; index++) {
+      put(4, { arms: 'pullDown', box: 'down', screen: SCREENS[lines++ % SCREENS.length] ?? 's1' })
+      put(4, { arms: 'pullUp', box: 'up' })
+    }
+    put(0, { arms: 'rest' })
+  }
+
+  pull(3)
+  put(3)
+  put(seconds(0.6), { eyes: 'right' })
+  put(2, { eyes: 'down' })
+  pull(3)
+  blink()
+  pull(3)
+  put(3)
+}
+
+// Searching the web: binoculars turned left, ahead, right and ahead again; lowered once
+// for a blink.
+function webAt({ put, blink }: Script): void {
+  const look = () => {
+    put(8, { scope: 'left' })
+    put(6, { scope: 'ahead' })
+    put(8, { scope: 'right' })
+    put(6, { scope: 'ahead' })
+  }
+
+  look()
+  look()
+  put(4, { arms: 'rest', scope: 'none', eyes: 'ahead' })
+  blink()
+  put(2, { arms: 'up' })
+  put(2, { arms: 'scope', scope: 'ahead', eyes: 'none' })
+  look()
+}
+
+// Waiting on the person: the hand up and waving a little, "?" over its head.
+function waitAt({ put, blink }: Script): void {
+  for (let wave = 0; wave < 3; wave++) {
+    put(6, { arms: 'hand' })
+    put(6, { arms: 'hand2' })
+  }
+  blink()
+
+  for (let wave = 0; wave < 2; wave++) {
+    put(6, { arms: 'hand' })
+    put(6, { arms: 'hand2' })
+  }
+}
+
+const WORK_AT: Readonly<Record<Activity, (script: Script) => void>> = {
+  think: thinkAt,
+  edit: editAt,
+  read: readAt,
+  run: runAt,
+  web: webAt,
+  wait: waitAt,
+}
+
+/**
+ * At work, at home beside the spark, acting out what Claude is busy with: the prop for
+ * it comes out, then its loop runs. A turn's first work band opens with "!"; one for a
+ * switch of tools opens with a puff, the last work's prop gone in it.
+ */
+export function workingOf({ activity, opening }: Pick<Work, 'activity' | 'opening'> = FRESH_WORK): Reel {
+  const intro = scriptFrom(HOME)
+
+  if (opening === 'start') {
+    // "!": there is work.
+    intro.put(1, { crouch: true, legs: 'tuck', say: 'alert' })
+    intro.put(4, { crouch: false, legs: 'stand' })
+    intro.put(0, { say: 'none' })
+  } else {
+    intro.put(2, { laptop: 'poof' })
+    intro.put(0, { laptop: 'none' })
+  }
+  setOut(intro, activity)
+
+  const loop = scriptFrom(intro.now())
+
+  WORK_AT[activity](loop)
 
   return { intro: intro.frames, loop: loop.frames, poster: loop.frames[0] ?? HOME }
 }
@@ -706,9 +906,9 @@ const SIGN: Readonly<Record<Ending, Say>> = { joy: 'done', puzzled: 'ask', closi
  * A mood's reel. An ending plays on into the chase, so the band runs on as it should
  * whenever the switch back to the chase comes.
  */
-export function reelOf(mood: Mood, story: Story = storyOf()): Reel {
+export function reelOf(mood: Mood, story: Story = storyOf(), work: Work = FRESH_WORK): Reel {
   if (mood === 'working') {
-    return workingOf()
+    return workingOf(work)
   }
   if (mood === 'sleep') {
     return sleepingOf()
@@ -975,8 +1175,9 @@ function rollCssOf({ frames, spark }: Story): string {
 // The spark in each mood. In the chase it rolls, and wobbles under the snowflake. At
 // work it stays home, winds up into a whirl and glows. At a turn's end its glow fades
 // and it spins down to rest, hopping with the character for joy, and the chase's
-// moves wait for the intro to end. Asleep, it rests at home.
-function sparkCssOf(mood: Mood, reel: Reel, story: Story): string {
+// moves wait for the intro to end. Asleep, it rests at home. Waiting on the person, it
+// holds still and glows; as the work switches tools, it whirls on at once.
+function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work): string {
   const home = `.spark-x{${varsOf(story.spark.home)};transform:translateX(${SMOOTH})`
   const loop = secondsOf(story.frames.length)
   const intro = secondsOf(reel.intro.length)
@@ -1000,18 +1201,34 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story): string {
   }
 
   if (mood === 'working') {
+    const whirl = WHIRL_SECONDS[work.activity]
+    const pulse = '@keyframes glow{0%,100%{opacity:0.5;transform:scale(0.9)}50%{opacity:0.85;transform:scale(1.05)}}'
+    const spin = '@keyframes spark-whirl{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}'
+
+    if (whirl === 0) {
+      return [`${home}}`, '.glow{opacity:0.5;animation:glow 2.6s ease-in-out infinite}', pulse].join('\n')
+    }
+    if (work.opening === 'switch') {
+      return [
+        `${home}}`,
+        `.spark-spin{animation:spark-whirl ${whirl}s linear infinite}`,
+        spin,
+        '.glow{opacity:0.5;animation:glow 1.8s ease-in-out infinite}',
+        pulse,
+      ].join('\n')
+    }
     // Speeding up evenly over the intro, it turns half as far as the whirl would.
-    const windUp = ((360 / WHIRL_SECONDS) * (reel.intro.length / FPS)) / 2
+    const windUp = ((360 / whirl) * (reel.intro.length / FPS)) / 2
 
     return [
       `${home}}`,
       `.spark-wind{animation:spark-wind ${intro} ${SPIN_UP} forwards}`,
       `@keyframes spark-wind{from{transform:rotate(0deg)}to{transform:rotate(${windUp.toFixed(2)}deg)}}`,
-      `.spark-spin{animation:spark-whirl ${WHIRL_SECONDS}s linear ${intro} infinite}`,
-      '@keyframes spark-whirl{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}',
+      `.spark-spin{animation:spark-whirl ${whirl}s linear ${intro} infinite}`,
+      spin,
       `.glow{opacity:0.5;animation:glow-in ${intro} ease-out forwards,glow 1.8s ease-in-out ${intro} infinite}`,
       '@keyframes glow-in{from{opacity:0;transform:scale(0.6)}to{opacity:0.5;transform:scale(0.9)}}',
-      '@keyframes glow{0%,100%{opacity:0.5;transform:scale(0.9)}50%{opacity:0.85;transform:scale(1.05)}}',
+      pulse,
     ].join('\n')
   }
 
@@ -1106,9 +1323,60 @@ function lanternOf(): Layer {
   }
 }
 
+// How far a helper paces, and how far apart two helpers work. They work at the far end
+// of the stage, a row from the right edge in: the snowman, a third of the way along,
+// never stands in their way, however narrow the band.
+const HELPER_WALK = 12 * UNIT
+const HELPER_GAP = 20 * UNIT
+
+// The stretch a helper's pacing covers: its own width and its walk.
+export const HELPER_SPAN = 8 * UNIT + HELPER_WALK
+
+/** Where helper `index` paces from: a row in from the stage's right end. */
+export function helperAt(index: number): Place {
+  return placeAt(-(HELPER_SPAN + 4 * UNIT + index * HELPER_GAP), 1)
+}
+
+// The helpers: one for each agent Claude has out, each carrying a parcel back and forth
+// in pixel steps, out of step with the others, its legs scuttling.
+function helpersOf(count: number): Layer {
+  let svg = ''
+
+  for (let index = 0; index < Math.min(count, MAX_HELPERS); index++) {
+    const hat = HELPER_HATS[index % HELPER_HATS.length] ?? KNIT_RED
+
+    svg +=
+      `<g class="px" style="transform:translate(${cssOf(helperAt(index))},${BAND_HEIGHT - GROUND - 5 * UNIT}px)">` +
+      `<g class="helper" style="animation-delay:-${(index * 0.8).toFixed(1)}s">` +
+      `<path fill="${PARCEL}" d="${pathOf(HELPER.parcel)}"/>` +
+      `<path fill="${ORANGE}" d="${pathOf(HELPER.body)}"/>` +
+      `<path fill="${hat}" d="${pathOf(HELPER.hat)}"/>` +
+      `<path fill="${EYE}" d="${pathOf(HELPER.eyes)}"/>` +
+      `<path class="helper-a" fill="${ORANGE}" d="${pathOf(HELPER_LEGS.a)}"/>` +
+      `<path class="helper-b" fill="${ORANGE}" d="${pathOf(HELPER_LEGS.b)}"/>` +
+      '</g></g>'
+  }
+
+  return {
+    svg,
+    css:
+      '.helper{animation:helper-go 2.4s steps(12,end) infinite}' +
+      `@keyframes helper-go{0%,100%{transform:translateX(0)}50%{transform:translateX(${HELPER_WALK}px)}}` +
+      '.helper-a,.helper-b{animation:helper-step 0.34s step-end infinite}.helper-b{animation-delay:-0.17s}' +
+      '@keyframes helper-step{0%{opacity:1}50%{opacity:0}}',
+  }
+}
+
+// The style as text in the markup, escaped: it then reads the same parsed as XML, as
+// HTML, or through the desktop's scrub, which takes a bare "<length>" in an @property
+// rule for a tag, drops it, and the rule with it.
+function textOf(css: string): string {
+  return css.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 // Everything that moves: what reduced motion holds still, and /winter calm too.
 const MOVING =
-  '.m,.ray,.spark-x,.spark-hop,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint,.confetti,.lantern-lit'
+  '.m,.ray,.spark-x,.spark-hop,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint,.confetti,.lantern-lit,.helper,.helper-a,.helper-b'
 
 const STILL = `:is(${MOVING}){animation:none!important}`
 
@@ -1144,13 +1412,15 @@ const EMBER_FADE = 5
  * The band's drawing in a mood, as wide as its frame. `calm`, as the person asks with
  * /winter calm, holds it still on its still frame, with no answer to the pointer.
  * `occasion` dresses it: a party hat and confetti for New Year, a lantern for Ramadan.
+ * `work`, while Claude works: what it is busy with, how the band opens, and how many
+ * helpers it has out.
  */
 export function bandOf(
   mood: Mood = 'idle',
-  { calm = false, occasion = 'none' }: { calm?: boolean; occasion?: Occasion } = {},
+  { calm = false, occasion = 'none', work = FRESH_WORK }: { calm?: boolean; occasion?: Occasion; work?: Work } = {},
 ): string {
   const story = storyOf()
-  const reel = reelOf(mood, story)
+  const reel = reelOf(mood, story, work)
   const { intro, loop, poster } = reel
   const frames = [...intro, ...loop]
   // The spark glows at work and fades out of it, and has no glow in the chase or asleep.
@@ -1214,6 +1484,25 @@ export function bandOf(
     HINGE_GRAY,
   )
   const logo = layerOf('logo', LOGO, frame => frame.laptop, reel, ORANGE)
+  const hasBook = (frame: Frame) => (frame.book === 'none' ? 'none' : 'on')
+  const hasBox = (frame: Frame) => (frame.box === 'none' ? 'none' : 'on')
+  const props = [
+    layerOf('book', { on: BOOK.cover }, hasBook, reel, BOOK_BLUE),
+    layerOf('pages', { on: BOOK.pages }, hasBook, reel, PAGE),
+    layerOf('lines', BOOK_LINES, frame => frame.book, reel, INK),
+    layerOf('turn', BOOK_TURN, frame => frame.book, reel, PAGE),
+    layerOf('box', { on: BOX.body }, hasBox, reel, BOX_DARK),
+    layerOf('glass', { on: BOX.screen }, hasBox, reel, SCREEN_DARK),
+    layerOf('screen', SCREEN, frame => frame.screen, reel, TERMINAL_GREEN),
+    layerOf('lever', LEVER, frame => frame.box, reel, LID_GRAY),
+    layerOf('knob', KNOB, frame => frame.box, reel, KNOB_RED),
+    layerOf('glyph', GLYPHS, frame => frame.glyph, reel, CODE_BLUE),
+  ]
+  const scope = [
+    layerOf('scope', SCOPE, frame => frame.scope, reel, BOX_DARK),
+    layerOf('lens', SCOPE_LENS, frame => frame.scope, reel, SCOPE_LENS_BLUE),
+  ]
+  const helpers = mood === 'working' ? helpersOf(work.helpers) : { svg: '', css: '' }
   const pal = layerOf('pal', SNOWMAN_ARMS, frame => frame.pal, reel, STICK)
   const flake = layerOf('flake', FLAKE, frame => frame.flake?.pose ?? 'none', reel, FLAKE_BLUE)
   const robinPose = (frame: Frame) => frame.robin?.pose ?? 'none'
@@ -1294,7 +1583,10 @@ export function bandOf(
     pal.css,
     flake.css,
     ...robin.map(layer => layer.css),
-    sparkCssOf(mood, reel, story),
+    ...props.map(layer => layer.css),
+    ...scope.map(layer => layer.css),
+    helpers.css,
+    sparkCssOf(mood, reel, story, work),
     // Every footprint and shed spark shares one fade on the chase's clock.
     `.print{opacity:0;animation:melt ${chaseLoop} linear infinite}`,
     `@keyframes melt{0%{opacity:${PRINT_DEPTH}}${percent(MELT, chaseFrames)}{opacity:0}100%{opacity:0}}`,
@@ -1358,15 +1650,15 @@ export function bandOf(
   // and its laptop, and the robin on its hat.
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${MAX_WIDTH}" height="${BAND_HEIGHT}">
 <style>
-${css}
+${textOf(css)}
 </style>${defs}
 ${ground}${marks}
 ${snowman}${lantern.svg}
 <g class="m walker px" fill-opacity="0.22">${shadows.svg}</g>
 ${embers}
 <g class="spark-x"><g class="spark-hop"><g transform="translate(${SPARK_BOX / 2} ${SPARK_CENTER_Y})">${glow}<g class="spark-tilt"><g class="spark-wind"><g class="spark-spin">${raysOf()}</g></g></g></g></g></g>
-${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}${confetti.svg}
-<g class="m walker px"><g class="poke"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${snores.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}</g>
+${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}${confetti.svg}${helpers.svg}
+<g class="m walker px"><g class="poke"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${scope.map(layer => layer.svg).join('')}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${snores.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}${props.map(layer => layer.svg).join('')}</g>
 ${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}
 </svg>`
 }

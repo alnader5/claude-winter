@@ -23,6 +23,23 @@ export type When = {
   isLate: boolean
 }
 
+// What Claude is busy with while it works, as the band acts it out: the kind of tool
+// running on the main loop, none (thinking and writing), or a question waiting on the
+// person.
+export type Activity = 'think' | 'edit' | 'read' | 'run' | 'web' | 'wait'
+
+// How a work band starts: with the turn ("!", the prop coming up), or with the work
+// switching from one kind of tool to another (a puff, then the new prop).
+export type Opening = 'start' | 'switch'
+
+// The work the band shows, and how many helpers are out: the agents Claude sent off,
+// still at work.
+export type Work = {
+  activity: Activity
+  opening: Opening
+  helpers: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     winter: {
@@ -31,6 +48,7 @@ declare module 'claude-code' {
       when: When
       // Dozing: late at night, nothing asked of Claude for a while.
       isAsleep: boolean
+      work: Work
     }
   }
 }

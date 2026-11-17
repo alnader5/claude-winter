@@ -6,6 +6,7 @@ import {
   ALT,
   BAND_HEIGHT,
   ENDING_MS,
+  HELPER_SPAN,
   HOME,
   MAX_HOP,
   MAX_WIDTH,
@@ -14,6 +15,7 @@ import {
   TRACK,
   bandOf,
   endingOf,
+  helperAt,
   isOnIce,
   pixelsOf,
   printsOf,
@@ -39,6 +41,7 @@ import {
   UNIT,
 } from '../hooks/sprite'
 import { whenOf } from '../hooks/time'
+import { MAX_HELPERS, WORK_ALT, activityOf, type Activity } from '../hooks/work'
 
 const GLASS = { blur: 4, opacity: 0.64 }
 
@@ -165,7 +168,9 @@ test("Claude's pixel character and the spark share a band as wide as its slot", 
     // a share of the width and some pixels, and a rule turns them into a place live.
     expect(source).toContain('--of:1;--px:-24px')
     expect(source).toContain('.spark-x{--of:0;--px:40px;transform:translateX(calc(var(--of) * var(--w) + var(--px)))')
-    expect(source).toContain("@property --of{syntax:'<number>';inherits:false;initial-value:0}")
+    expect(source).toContain("@property --of{syntax:'&lt;number&gt;';inherits:false;initial-value:0}")
+    // The style is plain text in the markup, so a scrub or an XML parser reads it whole.
+    expect(source.slice(source.indexOf('<style>') + 7, source.indexOf('</style>'))).not.toMatch(/[<>]/)
     // Dressed for the cold, beside a snowman.
     expect(source).toContain(KNIT_RED)
     expect(source).toContain(STRIPE)
@@ -643,6 +648,174 @@ test('it dresses for New Year and for Ramadan, and the sky follows the clock', a
   expect(String((await backdrop.find({ type: 'Svg' }))?.props.source)).toContain('class="star"')
   await band.unmount()
   await backdrop.unmount()
+})
+
+test('each kind of tool has an act of its own, with its own prop', () => {
+  expect(['Read', 'Grep', 'Glob'].map(activityOf)).toEqual(['read', 'read', 'read'])
+  expect(['Edit', 'Write', 'NotebookEdit'].map(activityOf)).toEqual(['edit', 'edit', 'edit'])
+  expect(['Bash', 'BashOutput'].map(activityOf)).toEqual(['run', 'run'])
+  expect(['WebSearch', 'WebFetch', 'mcp__Claude_Browser__navigate'].map(activityOf)).toEqual(['web', 'web', 'web'])
+  expect(['TodoWrite', 'Agent', 'mcp__docs__read'].map(activityOf)).toEqual(['think', 'think', 'think'])
+
+  for (const activity of ['think', 'edit', 'read', 'run', 'web', 'wait'] as const) {
+    for (const opening of ['start', 'switch'] as const) {
+      const { intro, loop } = workingOf({ activity, opening })
+
+      // A turn's first band says "!"; a switch of tools opens with a puff.
+      expect(intro[0]?.say === 'alert' || opening === 'switch').toBe(true)
+      expect(intro[0]?.laptop === 'poof' || opening === 'start').toBe(true)
+      // All of it at home, on the ground.
+      expect(loop.every(frame => isAt(frame.x, HOME.x) && frame.hop === 0)).toBe(true)
+      expectOnTrack(intro, false)
+      expectOnTrack(loop, true)
+      expect(bandOf('working', { work: { activity, opening, helpers: 3 } }).length < SVG_LIMIT).toBe(true)
+    }
+  }
+
+  const loopOf = (activity: Activity) =>
+    workingOf({ activity, opening: 'switch' }).loop
+
+  // Reading: the book open all along, a page turned now and then.
+  expect(loopOf('read').every(frame => frame.book !== 'none')).toBe(true)
+  expect(loopOf('read').some(frame => frame.book === 'turn')).toBe(true)
+  // Running: the terminal box all along, its screen scrolling through three lines.
+  expect(loopOf('run').every(frame => frame.box !== 'none' && frame.screen !== 'none')).toBe(true)
+  expect(new Set(loopOf('run').map(frame => frame.screen)).size).toBe(3)
+  // Searching: the binoculars up nearly all along, turned every way.
+  expect(loopOf('web').filter(frame => frame.scope !== 'none').length > loopOf('web').length * 0.8).toBe(true)
+  expect(new Set(loopOf('web').map(frame => frame.scope))).toEqual(new Set(['left', 'ahead', 'right', 'none']))
+  // Editing: typing at the open laptop as code flies off it.
+  expect(loopOf('edit').every(frame => frame.laptop === 'open')).toBe(true)
+  expect(loopOf('edit').some(frame => frame.glyph === 'g3')).toBe(true)
+  // Waiting: the laptop shut, a hand up and waving, "?" over its head.
+  expect(
+    loopOf('wait').every(
+      frame => frame.laptop === 'closed' && frame.say === 'ask' && (frame.arms === 'hand' || frame.arms === 'hand2'),
+    ),
+  ).toBe(true)
+  expect(loopOf('think').every(frame => frame.laptop === 'open')).toBe(true)
+
+  // The spark whirls fastest as code flies to it, and holds still while a question waits.
+  expect(bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0 } })).toContain(
+    'animation:spark-whirl 1.6s linear infinite',
+  )
+  expect(bandOf('working', { work: { activity: 'wait', opening: 'switch', helpers: 0 } })).not.toContain('spark-whirl')
+
+  // The helpers pace at the far end, clear of the snowman and on the stage, at any width.
+  for (const width of WIDTHS) {
+    for (let index = 0; index < MAX_HELPERS; index++) {
+      const left = pixelsOf(helperAt(index), width)
+
+      expect(left > pixelsOf(TRACK.greet, width)).toBe(true)
+      expect(left + HELPER_SPAN <= width).toBe(true)
+    }
+  }
+})
+
+test('the band acts out the tool that runs, each a moment at least, and a question raises its hand', async ($, on) => {
+  const clock = mock.clock(on, { now: NOON })
+  const gates: (() => void)[] = []
+
+  // The engine beneath: a turn's ids, and tools that run until the test lets them end.
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('tool.call', () => new Promise(done => gates.push(() => done({ result: 'done' }))))
+  on('classic.PermissionRequest', () => ({}))
+  on('classic.PermissionDenied', () => ({}))
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface: 'desktop' })
+  const alt = async () => (await ui.find({ type: 'Svg' }))?.props.alt
+  const end = async (run: Promise<unknown>) => {
+    gates.shift()?.()
+    await run
+  }
+
+  await $.turn.start({ text: 'look into it', turnId: 'work' })
+  expect(await alt()).toBe(WORK_ALT.think)
+
+  // A file read, once the turn's opening has had its moment.
+  const reading = $.tool.call({ tool: 'Read', file_path: '/notes.md', tool_use_id: 'read-1' })
+
+  expect(await alt()).toBe(WORK_ALT.think)
+  await clock.advance(1500)
+  expect(await alt()).toBe(WORK_ALT.read)
+
+  // A quick edit right after: the book stays its moment, then the laptop and the code.
+  await end(reading)
+  const editing = $.tool.call({ tool: 'Edit', file_path: '/notes.md', old_string: 'a', new_string: 'b', tool_use_id: 'edit-1' })
+
+  expect(await alt()).toBe(WORK_ALT.read)
+  await clock.advance(1500)
+  expect(await alt()).toBe(WORK_ALT.edit)
+  await end(editing)
+
+  // A command that has to ask first: the lever, then the hand up for the question,
+  // and back to the laptop once it has run.
+  const running = $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'run-1' })
+
+  await clock.advance(1500)
+  expect(await alt()).toBe(WORK_ALT.run)
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })
+  await clock.advance(1500)
+  expect(await alt()).toBe(WORK_ALT.wait)
+  await end(running)
+  await clock.advance(1500)
+  expect(await alt()).toBe(WORK_ALT.think)
+
+  // A refusal lowers the hand too.
+  const refused = $.tool.call({ tool: 'Write', file_path: '/x', content: 'y', tool_use_id: 'write-1' })
+
+  await $.classic.PermissionRequest({ tool_name: 'Write', tool_input: {} })
+  await clock.advance(1500)
+  expect(await alt()).toBe(WORK_ALT.wait)
+  await $.classic.PermissionDenied({ tool_name: 'Write', tool_input: {}, tool_use_id: 'write-1', reason: 'no' })
+  await clock.advance(1500)
+  expect(await alt()).toBe(WORK_ALT.edit)
+  await end(refused)
+
+  // A subagent's own tools leave the main band be.
+  const helping = $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: 'agent-run', agentId: 'agent-9' })
+
+  await clock.advance(3000)
+  expect(await alt()).toBe(WORK_ALT.think)
+  await end(helping)
+  await ui.unmount()
+})
+
+test('helpers come out with the agents Claude sends, and go back as each one ends', async ($, on) => {
+  mock.clock(on, { now: NOON })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface: 'desktop' })
+  const svg = async () => (await ui.find({ type: 'Svg' }))?.props
+  const helpersDrawn = async () => (String((await svg())?.source).match(/class="helper"/g) ?? []).length
+
+  await $.turn.start({ text: 'split the work', turnId: 'main' })
+  expect(await helpersDrawn()).toBe(0)
+
+  for (const agentId of ['scout', 'reader']) {
+    await $.turn.start({ text: 'go', turnId: `${agentId}-turn`, agentId })
+  }
+  expect(await helpersDrawn()).toBe(2)
+  expect((await svg())?.alt).toBe(`${WORK_ALT.think}, with 2 little helpers carrying parcels`)
+
+  await $.turn.complete({
+    answer: 'found it',
+    durationMs: 300,
+    isAborted: false,
+    turnId: 'scout-turn',
+    agentId: 'scout',
+    reason: 'answer',
+  })
+  expect(await helpersDrawn()).toBe(1)
+
+  // No more than three at once, however many go out.
+  for (const agentId of ['a', 'b', 'c', 'd']) {
+    await $.turn.start({ text: 'go', turnId: `${agentId}-turn`, agentId })
+  }
+  expect(await helpersDrawn()).toBe(3)
+  await ui.unmount()
 })
 
 test('the band yields to a survey, and the terminal draws none', async $ => {

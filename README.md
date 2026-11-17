@@ -3,7 +3,15 @@
 A winter look for Claude Code: snowy-day colors in light mode and winter-night colors in dark mode, a slow snowfall behind the conversation, and Claude's pixel character in a small band above the prompt.
 
 - **Between turns** the character, in a knitted hat and a striped scarf, chases a small orange spark along a snowy track. A snowflake lands on the spark, which shakes it off. The character runs after the spark, puffs in the cold, pounces and misses while the spark darts home trailing sparks, then slides back across the ice with its arms out and waves to a snowman on the way. Its footprints melt slowly in the snow.
-- **While Claude works** a laptop comes up out of the snow. The character types, stops to think (`...`) and glances at the spark, which whirls and glows. Now and then a robin comes down onto its hat.
+- **While Claude works** the character acts out what Claude is doing, and the spark whirls and glows beside it.
+  - *Thinking or writing*: a laptop comes up out of the snow. The character types, stops to think (`...`) and glances at the spark. Now and then a robin comes down onto its hat.
+  - *Editing files*: it types fast, and bits of code (`<>`) fly off the laptop to the spark, which whirls faster.
+  - *Reading files*: it holds an open book, its eyes running along the lines, and turns a page now and then.
+  - *Running a command*: it works the lever of a little terminal, whose screen scrolls at each pull.
+  - *Searching the web*: it looks far out through binoculars, left, ahead and right.
+  - Each act stays on for a moment at least, so a run of quick tools never flickers.
+- **When Claude needs your answer** to a permission prompt, the laptop shuts and the character raises its hand and waves, a `?` over its head, until you answer. The spark holds still and glows.
+- **For each agent Claude sends off**, a little helper in a colored hat comes out at the far end of the band, pacing with a parcel, and goes home when its agent is done. Up to three show at once.
 - **When a turn ends** the laptop folds away. The character jumps for joy under a green tick when Claude has answered, wonders (`?`) when the turn ended without an answer, and just stands when you stopped it. Then the chase starts again.
 
 - **Point at the band** and everything holds still while the character turns to look at you and waves. **Click it** and the character jumps, a heart over its head.
@@ -44,7 +52,7 @@ To take a newer version later, run `claude plugin update winter` and start a new
 
 ## بالعربية
 
-مود شتوي لـ Claude Code: ألوان يوم ثلجي في الوضع الفاتح وليلة شتوية في الوضع الداكن، وثلج يتساقط ببطء خلف المحادثة، وشخصية Claude البكسلية في شريط صغير فوق صندوق الكتابة. بين الأدوار تطارد الشخصية، بقبعتها الصوفية ووشاحها المخطط، الشرارة البرتقالية على طريق ثلجي: تسقط ندفة ثلج على الشرارة فتنفضها، وتنزلق الشخصية على الجليد بذراعين ممدودتين وتلوّح لرجل الثلج، وتذوب آثار أقدامها ببطء. وبينما يعمل Claude تكتب على حاسوب صغير وتتوقف لتفكّر، ويحطّ عصفور على قبعتها أحياناً، ثم تقفز فرحاً تحت علامة ✓ خضراء حين يصل الرد، أو تُظهر «؟» إن انتهى الدور بلا رد.
+مود شتوي لـ Claude Code: ألوان يوم ثلجي في الوضع الفاتح وليلة شتوية في الوضع الداكن، وثلج يتساقط ببطء خلف المحادثة، وشخصية Claude البكسلية في شريط صغير فوق صندوق الكتابة. بين الأدوار تطارد الشخصية، بقبعتها الصوفية ووشاحها المخطط، الشرارة البرتقالية على طريق ثلجي: تسقط ندفة ثلج على الشرارة فتنفضها، وتنزلق الشخصية على الجليد بذراعين ممدودتين وتلوّح لرجل الثلج، وتذوب آثار أقدامها ببطء. وبينما يعمل Claude تمثّل الشخصية ما يفعله: تكتب على حاسوب صغير وتتوقف لتفكّر حين يفكّر، ويحطّ عصفور على قبعتها أحياناً. وحين يعدّل الملفات تكتب بسرعة وتطير رموز الشيفرة `<>` من حاسوبها إلى الشرارة، وحين يقرأ تمسك كتاباً مفتوحاً وتقلّب صفحاته، وحين يشغّل أمراً تشدّ ذراع طرفية صغيرة، وحين يبحث في الويب تنظر بمنظارها بعيداً. وإن احتاج Claude إذنك تغلق حاسوبها وترفع يدها ملوّحة وفوقها «؟» حتى تجيب. ولكل وكيل يرسله Claude يظهر مساعد صغير بقبعة ملونة في آخر الشريط يحمل طرداً، ويعود حين ينتهي وكيله. ثم تقفز فرحاً تحت علامة ✓ خضراء حين يصل الرد، أو تُظهر «؟» إن انتهى الدور بلا رد.
 
 ويمتد الشريط بعرض المساحة كلها حتى 1200 بكسل، فيتوزع الطريق ورجل الثلج والجليد على العرض، وتقطعه الشخصية أسرع كلما اتسع.
 
@@ -63,7 +71,8 @@ To take a newer version later, run `claude plugin update winter` and start a new
 ## Development
 
 - `hooks/register.tsx`: the hooks. The look at the session's start, the backdrop, the band, and the turn events the band follows.
-- `hooks/band.ts` and `hooks/sprite.ts`: the band's reels, one per mood, and the pixel sprite they are drawn from.
+- `hooks/band.ts` and `hooks/sprite.ts`: the band's reels, one per mood and one per kind of work, and the pixel sprite they are drawn from.
+- `hooks/work.ts`: what the character acts out for each tool, and the band's words for screen readers while Claude works.
 - `hooks/scene.ts`: the snowfall backdrop and its skies.
 - `hooks/time.ts`: the sky, the occasion and the lateness, read from this machine's clock; Ramadan by the Umm al-Qura calendar.
 - `hooks/palette.ts`: the winter colors, generated by `node tools/make-palette.mjs`.

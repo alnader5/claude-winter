@@ -127,6 +127,36 @@ export const ARMS = {
     [0, 4, 3, 1],
     [15, 4, 3, 1],
   ],
+  // Holding a book open by its sides.
+  hold: [
+    [2, 5, 2, 2],
+    [14, 5, 2, 2],
+  ],
+  // The right hand on a lever's knob, pulling it up and pushing it down.
+  pullUp: [
+    [1, 4, 2, 2],
+    [14, 2, 2, 2],
+  ],
+  pullDown: [
+    [1, 4, 2, 2],
+    [14, 4, 2, 2],
+  ],
+  // Holding binoculars up to the eyes.
+  scope: [
+    [2, 2, 2, 2],
+    [14, 2, 2, 2],
+  ],
+  // A hand raised high, as a pupil's is, waving a little: there is a question.
+  hand: [
+    [1, 4, 2, 2],
+    [15, 0, 2, 2],
+    [16, -1, 1, 1],
+  ],
+  hand2: [
+    [1, 4, 2, 2],
+    [16, 0, 2, 2],
+    [17, -1, 1, 1],
+  ],
 } as const satisfies Record<string, readonly Rect[]>
 
 // Waving at whoever has the pointer over the band: the right arm up, then out.
@@ -175,6 +205,17 @@ export const EYES = {
     [5, 1, 1, 2],
     [12, 1, 1, 2],
   ],
+  // Reading a line on the pages below, left to right.
+  readL: [
+    [4, 3, 1, 2],
+    [11, 3, 1, 2],
+  ],
+  readR: [
+    [6, 3, 1, 2],
+    [13, 3, 1, 2],
+  ],
+  // Behind binoculars.
+  none: [],
   // ^ ^
   happy: [
     [4, 3, 1, 1],
@@ -266,6 +307,178 @@ export const LOGO = {
 } as const satisfies Record<string, readonly Rect[]>
 
 export type Laptop = keyof typeof LID | 'none'
+
+// The other things the character works with, each held or set in front of its body as
+// the laptop is, and shown while Claude is busy at the matching kind of tool.
+
+// Reading files: a book held open, its lines read a page at a time, a page turning.
+export const BOOK_BLUE = '#3e6fb0'
+export const PAGE = '#f3ead6'
+export const INK = '#8a8f99'
+export const BOOK = {
+  cover: [
+    [4, 5, 1, 3],
+    [13, 5, 1, 3],
+    [4, 8, 10, 1],
+  ],
+  pages: [[5, 5, 8, 3]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const BOOK_LINES = {
+  p1: [
+    [6, 6, 2, 1],
+    [10, 6, 2, 1],
+    [6, 7, 1, 1],
+    [10, 7, 2, 1],
+  ],
+  p2: [
+    [6, 6, 1, 1],
+    [10, 6, 1, 1],
+    [6, 7, 2, 1],
+    [10, 7, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+// A page lifting over the book as it turns.
+export const BOOK_TURN = {
+  turn: [[9, 4, 3, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export type Book = keyof typeof BOOK_LINES | 'turn' | 'none'
+
+// Running a command: a little terminal box with a green screen, worked with a lever.
+export const BOX_DARK = '#2b2f36'
+export const SCREEN_DARK = '#16261c'
+export const TERMINAL_GREEN = '#4ade80'
+export const KNOB_RED = '#e5484d'
+export const BOX = {
+  body: [[5, 5, 8, 5]],
+  screen: [[6, 6, 6, 2]],
+} as const satisfies Record<string, readonly Rect[]>
+
+// The screen's lines, scrolling a line at each pull.
+export const SCREEN = {
+  s1: [
+    [6, 6, 1, 1],
+    [8, 6, 3, 1],
+    [6, 7, 2, 1],
+  ],
+  s2: [
+    [6, 6, 2, 1],
+    [6, 7, 1, 1],
+    [8, 7, 3, 1],
+  ],
+  s3: [
+    [6, 6, 1, 1],
+    [8, 6, 2, 1],
+    [6, 7, 3, 1],
+    [10, 7, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+// The lever beside the box, up and pulled down, and its knob.
+export const LEVER = {
+  up: [[13, 3, 1, 3]],
+  down: [[13, 5, 1, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const KNOB = {
+  up: [[13, 2, 1, 1]],
+  down: [[13, 4, 1, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export type Box = keyof typeof LEVER | 'none'
+export type Screen = keyof typeof SCREEN | 'none'
+
+// Searching the web: binoculars over the eyes, turned left, ahead and right, a glint
+// on each lens.
+export const SCOPE_LENS_BLUE = '#9cc7e8'
+export const SCOPE = {
+  left: [
+    [3, 2, 3, 2],
+    [10, 2, 3, 2],
+    [6, 3, 4, 1],
+  ],
+  ahead: [
+    [4, 2, 3, 2],
+    [11, 2, 3, 2],
+    [7, 3, 4, 1],
+  ],
+  right: [
+    [5, 2, 3, 2],
+    [12, 2, 3, 2],
+    [8, 3, 4, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const SCOPE_LENS = {
+  left: [
+    [3, 2, 1, 1],
+    [10, 2, 1, 1],
+  ],
+  ahead: [
+    [5, 2, 1, 1],
+    [12, 2, 1, 1],
+  ],
+  right: [
+    [7, 2, 1, 1],
+    [14, 2, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+export type Scope = keyof typeof SCOPE | 'none'
+
+// Editing files: "<>" flying off the laptop up toward the spark, a step at a time.
+export const CODE_BLUE = '#6cb6ff'
+const GLYPH: readonly string[] = ['.#.#.', '#...#', '.#.#.']
+
+function glyphAt(column: number, row: number): Rect[] {
+  const rects: Rect[] = []
+
+  GLYPH.forEach((line, dy) => {
+    for (let dx = 0; dx < line.length; dx++) {
+      if (line[dx] === '#') {
+        rects.push([column + dx, row + dy, 1, 1])
+      }
+    }
+  })
+
+  return rects
+}
+
+export const GLYPHS = {
+  g1: glyphAt(14, 2),
+  g2: glyphAt(16, -1),
+  g3: glyphAt(18, -4),
+} as const satisfies Record<string, readonly Rect[]>
+
+export type Glyph = keyof typeof GLYPHS | 'none'
+
+// Claude's helpers, one for each agent it sends off: small creatures of the same
+// orange in hats of their own colors, each carrying a parcel back and forth. On a grid
+// of 8 by 5 pixels.
+export const HELPER_HATS: readonly string[] = ['#3e9be0', '#2f9e5b', '#7b5cd6']
+export const PARCEL = '#e8d9b5'
+export const HELPER = {
+  hat: [[1, 0, 6, 1]],
+  body: [[0, 1, 8, 3]],
+  eyes: [
+    [2, 2, 1, 1],
+    [5, 2, 1, 1],
+  ],
+  parcel: [[2, -2, 4, 2]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const HELPER_LEGS = {
+  a: [
+    [1, 4, 1, 1],
+    [6, 4, 1, 1],
+  ],
+  b: [
+    [2, 4, 1, 1],
+    [5, 4, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
 
 // The snowman, on the grid of the character's own size and standing on the same snow:
 // a top hat, a head with coal eyes and a carrot pointing right, a round body with two
