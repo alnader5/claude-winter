@@ -167,6 +167,11 @@ export const ARMS = {
     [1, 1, 2, 2],
     [15, 4, 2, 2],
   ],
+  // Sitting still to focus: the hands resting low on its knees.
+  calm: [
+    [1, 6, 2, 1],
+    [15, 6, 2, 1],
+  ],
 } as const satisfies Record<string, readonly Rect[]>
 
 // Waving at whoever has the pointer over the band: the right arm up, then out.
@@ -528,6 +533,73 @@ export const SWEAT = {
 } as const satisfies Record<string, readonly Rect[]>
 
 export type Sweat = keyof typeof SWEAT | 'none'
+
+// What the spark throws about at home, around its own center. Sneezing, a spray of
+// sparks toward the character; diving into the snow or popping out of it, snow kicked
+// up from the ground under it.
+export const SNEEZE = {
+  sneeze1: [
+    [-7, -2, 1, 1],
+    [-6, 0, 1, 1],
+    [-8, -4, 1, 1],
+  ],
+  sneeze2: [
+    [-10, -3, 1, 1],
+    [-9, 1, 1, 1],
+    [-11, -1, 1, 1],
+  ],
+  sneeze3: [
+    [-12, -4, 1, 1],
+    [-13, 0, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const KICK = {
+  snow1: [
+    [-3, 4, 1, 1],
+    [2, 4, 1, 1],
+    [0, 3, 1, 1],
+  ],
+  snow2: [
+    [-5, 2, 1, 1],
+    [4, 2, 1, 1],
+    [-1, 1, 1, 1],
+    [2, 0, 1, 1],
+  ],
+  snow3: [
+    [-7, 1, 1, 1],
+    [6, 1, 1, 1],
+    [-3, -2, 1, 1],
+    [3, -3, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+export type Burst = keyof typeof SNEEZE | keyof typeof KICK | 'none'
+
+// The bell at the end of a focus session, hung over the spark: gold, with a dark
+// clapper, and the lines of its ring on either side, now one pair and now the other.
+export const BELL_GOLD = '#e0a82e'
+export const BELL = {
+  body: [
+    [2, 0, 2, 1],
+    [1, 1, 4, 2],
+    [0, 3, 6, 1],
+  ],
+  clapper: [[2, 4, 2, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const RING = {
+  near: [
+    [-2, 1, 1, 1],
+    [7, 1, 1, 1],
+  ],
+  far: [
+    [-3, 3, 1, 1],
+    [8, 3, 1, 1],
+    [-2, -1, 1, 1],
+    [7, -1, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
 
 // The snowman, on the grid of the character's own size and standing on the same snow:
 // a top hat, a head with coal eyes and a carrot pointing right, a round body with two

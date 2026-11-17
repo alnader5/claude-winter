@@ -1,9 +1,11 @@
 // The turn the band above the prompt follows: under way ('working'), or how it just
 // ended, until the band goes back to the chase. `turnId` is that turn's, so a timer
-// left from one turn never clears the next one's beat.
+// left from one turn never clears the next one's beat. `heat` is how hard the turn
+// worked, by its end: a hard one ends in fireworks.
 export type Beat = {
   mood: 'working' | 'joy' | 'puzzled' | 'closing'
   turnId: string
+  heat: Heat
 }
 
 // How much of the winter moves, as /winter last set it: everything ('on'), nothing
@@ -28,9 +30,15 @@ export type When = {
 // person.
 export type Activity = 'think' | 'edit' | 'read' | 'run' | 'web' | 'wait'
 
-// How a work band starts: with the turn ("!", the prop coming up), or with the work
-// switching from one kind of tool to another (a puff, then the new prop).
-export type Opening = 'start' | 'switch'
+// How a work band starts: with the turn ("!", the prop coming up), with the work
+// switching from one kind of tool to another (a puff, then the new prop), or with the
+// same work going on, only harder (no opening at all).
+export type Opening = 'start' | 'switch' | 'stay'
+
+// How hard the turn has worked so far, by how long it has run and how many tools it
+// has called: the spark whirls faster and glows brighter at each step, and throws off
+// embers at the top two.
+export type Heat = 0 | 1 | 2 | 3
 
 // What the person's prompt sounds like to the band, read as the turn starts: nothing
 // typed (a turn that goes on by itself), a plain request, thanks or praise, a hurry, or
@@ -44,6 +52,15 @@ export type Work = {
   opening: Opening
   helpers: number
   tone: Tone
+  heat: Heat
+}
+
+// A focus session the person started with /winter focus: when it began and when it
+// ends, by this machine's clock, and whether its bell is ringing, the time just up.
+export type Focus = {
+  startedAt: number
+  endsAt: number
+  isDone: boolean
 }
 
 declare module 'claude-code' {
@@ -55,6 +72,7 @@ declare module 'claude-code' {
       // Dozing: late at night, nothing asked of Claude for a while.
       isAsleep: boolean
       work: Work
+      focus: Focus | null
     }
   }
 }

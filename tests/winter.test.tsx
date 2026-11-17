@@ -45,7 +45,7 @@ import {
 } from '../hooks/sprite'
 import { whenOf } from '../hooks/time'
 import { toneOf } from '../hooks/tone'
-import { MAX_HELPERS, WORK_ALT, activityOf, type Activity, type Tone } from '../hooks/work'
+import { MAX_HELPERS, WORK_ALT, activityOf, heatOf, type Activity, type Tone } from '../hooks/work'
 
 const GLASS = { blur: 4, opacity: 0.64 }
 
@@ -243,6 +243,42 @@ test('a snowflake lands on the spark, which shakes it off before it rolls away',
   // Gone, and the spark still again, well before the spark rolls out.
   expect(frames.slice(shaken + 6).every(frame => frame.flake === null && frame.tilt === 0)).toBe(true)
   expect(shaken + 6 < spark.out).toBe(true)
+})
+
+test('the spark sneezes the flake off, and hides in the snow while the character walks home', () => {
+  const { frames, spark } = storyOf()
+  const choo = frames.findIndex(frame => frame.burst === 'sneeze1')
+
+  // It swells, drawing in, then sneezes: small at once, a spray of sparks flying at the
+  // character, who blinks.
+  expect(frames[choo - 1]?.sparkScale).toBeGreaterThan(1)
+  expect(frames[choo]?.sparkScale).toBeLessThan(1)
+  expect(['sneeze1', 'sneeze2', 'sneeze3'].every(burst => frames.some(frame => frame.burst === burst))).toBe(true)
+  expect(frames.slice(choo, choo + 4).some(frame => frame.eyes === 'shut')).toBe(true)
+
+  // Home from its dash, it dives into the snow and stays under it until the character
+  // comes home, when it pops out with a bounce and the character starts: "!".
+  const gone = frames.findIndex(frame => frame.sparkScale === 0)
+  const popped = frames.findIndex((frame, index) => index > gone && frame.sparkScale > 1)
+
+  expect(gone > spark.back + spark.backFrames).toBe(true)
+  expect(popped - gone > 10 * 12).toBe(true)
+  expect(frames.slice(gone, popped - 1).every(frame => frame.sparkScale === 0 && frame.sparkDip > 0)).toBe(true)
+  // It stirs under the snow now and then, so where it hides shows.
+  expect(frames.slice(gone, popped - 1).filter(frame => frame.burst === 'snow1').length >= 6).toBe(true)
+  expect(isAt(frames[popped + 1]?.x ?? TRACK.far, HOME.x)).toBe(true)
+  expect(frames[popped + 1]?.say).toBe('alert')
+  expect(frames.slice(popped + 3).every(frame => frame.sparkScale === 1 && frame.sparkDip === 0)).toBe(true)
+  // Snow kicked up going in and coming out.
+  expect(frames.slice(gone - 3, gone + 1).map(frame => frame.burst)).toEqual(['snow1', 'snow2', 'snow3', 'none'])
+  expect(frames.slice(popped - 1, popped + 3).map(frame => frame.burst)).toEqual(['snow1', 'snow2', 'snow3', 'none'])
+
+  // All of it on the chase's clock, and on the ending's after its intro.
+  const chase = `${Number((frames.length / 12).toFixed(3))}s`
+
+  expect(bandOf('idle')).toContain(`.spark-pose{animation:spark-pose ${chase} linear infinite}`)
+  expect(bandOf('joy')).toContain(`.spark-pose{animation:spark-pose ${chase} linear `)
+  expect(bandOf('working')).not.toContain('animation:spark-pose')
 })
 
 test('it puffs in the cold after running, and its scarf streams behind it', () => {
@@ -536,6 +572,98 @@ test('/winter calms the band and the snow, hides the band, and the next session 
   await backdrop.unmount()
 })
 
+test('/winter focus sits the character still while the spark goes out, and rings a bell at the end', async ($, on) => {
+  const clock = mock.clock(on, { now: NOON })
+  const toasts: string[] = []
+
+  mock.store(on)
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('theme.set', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const svg = async () => (await ui.find({ type: 'Svg' }))?.props
+  const winter = (args: string) =>
+    $.command.run({
+      command: 'winter',
+      args,
+      origin: { kind: 'composer' },
+      presentation: { isFullscreen: false, columns: 80 },
+    })
+  // Each ray's time to go out, and how far into the session the band was drawn.
+  const rays = async () =>
+    [
+      ...String((await svg())?.source).matchAll(
+        /class="ray-left" style="animation-duration:([\d.]+)s;animation-delay:-([\d.]+)s"/g,
+      ),
+    ].map(([, out, drawn]) => [Number(out), Number(drawn)] as const)
+
+  // Twenty minutes: the character sits down, and the spark's eleven rays go out in
+  // turn, the last as the time is up.
+  expect((await winter('focus 20')).text).toContain('20 minutes')
+  expect((await svg())?.alt).toBe(`${ALT.focus} of 20 minutes`)
+
+  const fresh = await rays()
+
+  expect(fresh.length).toBe(11)
+  expect(Math.max(...fresh.map(([out]) => out))).toBe(1200)
+  expect(Math.abs(Math.min(...fresh.map(([out]) => out)) - 1200 / 11) < 0.001).toBe(true)
+  expect(fresh.every(([, drawn]) => drawn === 0)).toBe(true)
+  expect((await winter('')).text).toContain('20 minutes left')
+
+  // A turn in the middle shows the work; after it, the band comes back to the session
+  // drawn for how far in it is by then.
+  await clock.advance(8 * 60_000)
+  await $.turn.start({ text: 'check the tests', turnId: 'mid' })
+  expect(String((await svg())?.source)).not.toContain('ray-left')
+  await $.turn.complete({ answer: 'ok', durationMs: 1000, isAborted: false, turnId: 'mid', reason: 'answer' })
+  await clock.advance(ENDING_MS.joy + 1000)
+
+  const later = await rays()
+
+  expect(later.length).toBe(11)
+  expect(later.every(([, drawn]) => Math.abs(drawn - (8 * 60 + ENDING_MS.joy / 1000 + 1)) < 0.01)).toBe(true)
+
+  // The time up: a bell rings, a toast says so, and then the chase comes back.
+  await clock.advance(12 * 60_000 - ENDING_MS.joy - 1000 - 1)
+  expect((await svg())?.alt).toBe(`${ALT.focus} of 20 minutes`)
+  await clock.advance(1)
+  expect((await svg())?.alt).toBe(ALT.bell)
+  expect(String((await svg())?.source)).toContain('class="bell"')
+  expect(toasts.some(text => text.includes('focus time is up'))).toBe(true)
+  await clock.advance(6000)
+  expect((await svg())?.alt).toBe(ALT.idle)
+
+  // Stopped early, it is over at once; with none under way, it says so; and a length
+  // out of bounds is answered with how to use it.
+  await winter('focus')
+  expect((await svg())?.alt).toBe(`${ALT.focus} of 25 minutes`)
+  expect((await winter('focus stop')).text).toContain('stopped')
+  expect((await svg())?.alt).toBe(ALT.idle)
+  expect((await winter('focus stop')).text).toContain('no focus')
+  expect((await winter('focus 0')).text).toContain('Usage')
+  expect((await winter('focus 181')).text).toContain('Usage')
+  expect((await winter('focus soon')).text).toContain('Usage')
+
+  // A reload in the middle keeps its time.
+  await winter('focus 10')
+  await clock.advance(4 * 60_000)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect((await svg())?.alt).toBe(`${ALT.focus} of 10 minutes`)
+  await clock.advance(6 * 60_000)
+  expect((await svg())?.alt).toBe(ALT.bell)
+  await ui.unmount()
+})
+
 test('the clock gives the sky, the occasion and how late it is', () => {
   const at = (year: number, month: number, day: number, hour: number, minute = 0) =>
     whenOf(new Date(year, month, day, hour, minute).getTime())
@@ -672,7 +800,7 @@ test('each kind of tool has an act of its own, with its own prop', () => {
       expect(loop.every(frame => isAt(frame.x, HOME.x) && frame.hop === 0)).toBe(true)
       expectOnTrack(intro, false)
       expectOnTrack(loop, true)
-      expect(bandOf('working', { work: { activity, opening, helpers: 3, tone: 'urgent' } }).length < SVG_LIMIT).toBe(true)
+      expect(bandOf('working', { work: { activity, opening, helpers: 3, tone: 'urgent', heat: 0 } }).length < SVG_LIMIT).toBe(true)
     }
   }
 
@@ -699,10 +827,10 @@ test('each kind of tool has an act of its own, with its own prop', () => {
   expect(loopOf('think').every(frame => frame.laptop === 'open')).toBe(true)
 
   // The spark whirls fastest as code flies to it, and holds still while a question waits.
-  expect(bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0, tone: 'plain' } })).toContain(
+  expect(bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0, tone: 'plain', heat: 0 } })).toContain(
     'animation:spark-whirl 1.6s linear infinite',
   )
-  expect(bandOf('working', { work: { activity: 'wait', opening: 'switch', helpers: 0, tone: 'plain' } })).not.toContain(
+  expect(bandOf('working', { work: { activity: 'wait', opening: 'switch', helpers: 0, tone: 'plain', heat: 0 } })).not.toContain(
     'spark-whirl',
   )
 
@@ -916,7 +1044,7 @@ test('a prompt comes up as a paper plane, and the character meets it by how it s
   expect((opened.plain ?? 0) < (opened.thanks ?? 0)).toBe(true)
 
   // In a hurry the band runs faster, and the spark whirls faster too.
-  const hurried = bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0, tone: 'urgent' } })
+  const hurried = bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0, tone: 'urgent', heat: 0 } })
   const { loop } = workingOf({ activity: 'edit', opening: 'switch', tone: 'urgent' })
 
   expect(hurried).toContain(`,${Number((loop.length / 12 / 1.5).toFixed(3))}s;`)
@@ -964,6 +1092,75 @@ test('a quick tool waits for the plane to be read, and a hurry shows all through
   expect(String((await svg())?.source)).toContain(SWEAT_BLUE)
   await end(running)
   await ui.unmount()
+})
+
+test('the longer and harder a turn works, the hotter the spark, and a hard answer ends in fireworks', () => {
+  // By time or by tools, whichever comes first.
+  expect(heatOf(0, 0)).toBe(0)
+  expect(heatOf(19_999, 4)).toBe(0)
+  expect(heatOf(20_000, 0)).toBe(1)
+  expect(heatOf(0, 5)).toBe(1)
+  expect(heatOf(60_000, 2)).toBe(2)
+  expect(heatOf(1000, 15)).toBe(2)
+  expect(heatOf(180_000, 0)).toBe(3)
+  expect(heatOf(0, 40)).toBe(3)
+
+  const hot = (heat: 0 | 1 | 2 | 3) =>
+    bandOf('working', { work: { activity: 'edit', opening: 'stay', helpers: 0, tone: 'plain', heat } })
+
+  // Faster, brighter, bigger; embers at the top two heats.
+  expect(hot(0)).toContain('animation:spark-whirl 1.6s linear infinite')
+  expect(hot(3)).toContain('animation:spark-whirl 0.88s linear infinite')
+  expect(hot(0)).toContain('<circle class="glow" r="13"')
+  expect(hot(3)).toContain('<circle class="glow" r="19"')
+  expect(hot(1).match(/class="rise"/g)).toBeNull()
+  expect(hot(2).match(/class="rise"/g)?.length).toBe(3)
+  expect(hot(3).match(/class="rise"/g)?.length).toBe(6)
+
+  // The same work, only harder, goes on with no opening.
+  const { intro, loop } = workingOf({ activity: 'read', opening: 'stay', tone: 'plain' })
+
+  expect(intro).toEqual([])
+  expect(loop[0]?.book).not.toBe('none')
+
+  // Three rockets, each bursting into eight sparks, done within the joy's own time.
+  const grand = bandOf('joy', { grand: true })
+
+  expect(grand.match(/class="rocket"/g)?.length).toBe(3)
+  expect(grand.match(/class="firework"/g)?.length).toBe(24)
+  expect(1.05 + 0.3 + 0.8 < ENDING_MS.joy / 1000).toBe(true)
+  expect(bandOf('joy')).not.toContain('class="rocket"')
+  expect(bandOf('puzzled', { grand: true })).not.toContain('class="rocket"')
+})
+
+test('a long turn heats the spark up, and its answer sends up fireworks', async ($, on) => {
+  const clock = mock.clock(on, { now: NOON })
+
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface: 'desktop' })
+  const svg = async () => (await ui.find({ type: 'Svg' }))?.props
+
+  await $.turn.start({ text: 'refactor the whole thing', turnId: 'long' })
+  expect(String((await svg())?.source)).not.toContain('class="rise"')
+  await clock.advance(60_000)
+  expect((await svg())?.alt).toBe(`${WORK_ALT.think}, hard at it for a while now`)
+  expect(String((await svg())?.source)).toContain('class="rise"')
+
+  await ui.unmount()
+
+  const after = await $.ui.mount({ ...BAND, surface: 'desktop' })
+
+  await $.turn.complete({ answer: 'done', durationMs: 61_000, isAborted: false, turnId: 'long', reason: 'answer' })
+  expect(String((await after.find({ type: 'Svg' }))?.props.source)).toContain('class="rocket"')
+
+  // A quick turn's answer has none.
+  await $.turn.start({ text: 'and the docs', turnId: 'quick' })
+  await clock.advance(3000)
+  await $.turn.complete({ answer: 'done', durationMs: 3000, isAborted: false, turnId: 'quick', reason: 'answer' })
+  expect(String((await after.find({ type: 'Svg' }))?.props.source)).not.toContain('class="rocket"')
+  await after.unmount()
 })
 
 test('the eyes follow the pointer to either side of the character', () => {

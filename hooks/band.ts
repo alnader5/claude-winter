@@ -24,6 +24,9 @@
 //   the character folds the laptop away and cheers with a tick, wonders ("?") or just
 //   stands, while the spark spins down. Then the chase starts over.
 // - sleep, late at night with nothing to do: it dozes in the snow, z's over its head.
+// - focus, while the person focuses (/winter focus): it sits still in the snow, eyes
+//   shut, while the spark's rays go out one by one until the time is up. Then bell: a
+//   bell rings over the spark, relit, and the character stands and stretches.
 //
 // The width: the app tells a hook the band's width in cells of text, not in pixels, but
 // the drawing's own frame knows its width in pixels. So the drawing reads it in its CSS
@@ -34,6 +37,8 @@
 import {
   ARMS,
   BEAK,
+  BELL,
+  BELL_GOLD,
   BLUSH,
   BLUSH_PINK,
   BODY,
@@ -64,6 +69,7 @@ import {
   HINGE,
   HINGE_GRAY,
   INK,
+  KICK,
   KNIT_PINK,
   KNIT_RED,
   KNOB,
@@ -85,6 +91,7 @@ import {
   PARTY_HAT,
   PARTY_PURPLE,
   PLANE,
+  RING,
   ROBIN_BACK,
   ROBIN_BEAK,
   ROBIN_BREAST,
@@ -103,6 +110,7 @@ import {
   SCREEN_DARK,
   SHADE,
   SHADOW,
+  SNEEZE,
   SNOWMAN,
   SNOWMAN_ARMS,
   SNOW_SHADE,
@@ -120,10 +128,10 @@ import {
   balloonOf,
   pathOf,
 } from './sprite'
-import type { Book, Box, Glyph, Laptop, Rect, Scope, Screen, Sweat } from './sprite'
+import type { Book, Box, Burst, Glyph, Laptop, Rect, Scope, Screen, Sweat } from './sprite'
 import type { Occasion } from './time'
 import { FRESH_WORK, MAX_HELPERS } from './work'
-import type { Activity, Tone, Work } from './work'
+import type { Activity, Heat, Tone, Work } from './work'
 
 export const BAND_HEIGHT = 36
 
@@ -136,8 +144,12 @@ export const MIN_WIDTH = 240
 export const MAX_WIDTH = 1200
 export const REFERENCE_WIDTH = 480
 
-export type Mood = 'idle' | 'working' | 'joy' | 'puzzled' | 'closing' | 'sleep'
-export type Ending = Exclude<Mood, 'idle' | 'working' | 'sleep'>
+export type Mood = 'idle' | 'working' | 'joy' | 'puzzled' | 'closing' | 'sleep' | 'focus' | 'bell'
+export type Ending = Exclude<Mood, 'idle' | 'working' | 'sleep' | 'focus' | 'bell'>
+
+// A focus session as the band draws it: how long it runs, and how far into it the
+// band is drawn, both in milliseconds.
+export type FocusTime = { totalMs: number; elapsedMs: number }
 
 // The band in words, for a screen reader: what it shows, and in a mood what that means.
 export const ALT: Readonly<Record<Mood, string>> = {
@@ -147,6 +159,8 @@ export const ALT: Readonly<Record<Mood, string>> = {
   puzzled: "Claude's pixel character puzzled beside the spark: the turn ended without an answer",
   closing: "Claude's pixel character folding its laptop away beside the spark: the turn was stopped",
   sleep: "Claude's pixel character asleep in the snow beside the spark: it is late at night",
+  focus: "Claude's pixel character sitting still in the snow while the spark's rays go out one by one: a focus session",
+  bell: "Claude's pixel character stretching as a bell rings over the spark: the focus session is over",
 }
 
 // The snowy ground along the band's foot: a gray-blue edge over white, so it shows on
@@ -192,6 +206,9 @@ const WHIRL_SECONDS: Readonly<Record<Activity, number>> = {
   web: 2.4,
   wait: 0,
 }
+
+// How much quicker the spark whirls and its glow beats at each heat.
+const HEAT_PACE: Readonly<Record<Heat, number>> = { 0: 1, 1: 0.85, 2: 0.7, 3: 0.55 }
 
 // A place along the track: `px` CSS pixels from the band's left edge, plus `of` times
 // the stage's width.
@@ -288,6 +305,11 @@ export type Frame = {
   robin: Placed<keyof typeof ROBIN_BACK> | null
   // How far the spark tips as it shakes the flake off, in degrees.
   tilt: number
+  // The spark's own moves at home: how much it swells or shrinks (1 as it is, 0 gone
+  // into the snow), how far down it has sunk, in pixels, and what it throws about.
+  sparkScale: number
+  sparkDip: number
+  burst: Burst
 }
 
 // Where the chase starts and ends, and so where every other reel starts or ends: at
@@ -316,6 +338,9 @@ export const HOME: Frame = {
   flake: null,
   robin: null,
   tilt: 0,
+  sparkScale: 1,
+  sparkDip: 0,
+  burst: 'none',
 }
 
 const even = (value: number) => 2 * Math.round(value / 2)
@@ -513,13 +538,22 @@ export function storyOf(): Story {
   }
   put(seconds(0.5), { flake: { x: flakeX, y: landY, pose: 'whole' }, eyes: 'right' })
 
+  // The flake tickles: the spark draws in, swelling, and sneezes. The flake is flung
+  // off and a spray of sparks flies at the character, who blinks, and the spark
+  // wobbles back to rest.
   const flicks: readonly Frame['flake'][] = [
-    { x: flakeX + 2 * UNIT, y: landY - 2 * UNIT, pose: 'whole' },
-    { x: flakeX + 4 * UNIT, y: landY - 4 * UNIT, pose: 'bit' },
-    { x: flakeX + 6 * UNIT, y: landY - 6 * UNIT, pose: 'bit' },
+    { x: flakeX + 4 * UNIT, y: landY - 3 * UNIT, pose: 'whole' },
+    { x: flakeX + 9 * UNIT, y: landY - 7 * UNIT, pose: 'bit' },
+    { x: flakeX + 14 * UNIT, y: landY - 10 * UNIT, pose: 'bit' },
   ]
 
-  ;[12, -10, 8, -6, 3, 0].forEach((tilt, index) => put(1, { tilt, flake: flicks[index] ?? null }))
+  put(3, { sparkScale: 1.08 })
+  put(3, { sparkScale: 1.16 })
+  put(1, { sparkScale: 0.8, tilt: -14, flake: flicks[0] ?? null, burst: 'sneeze1' })
+  put(1, { sparkScale: 1.1, tilt: 10, flake: flicks[1] ?? null, burst: 'sneeze2', eyes: 'shut' })
+  put(1, { sparkScale: 0.95, tilt: -6, flake: flicks[2] ?? null, burst: 'sneeze3' })
+  put(1, { sparkScale: 1, tilt: 3, flake: null, burst: 'none' })
+  put(1, { tilt: 0, eyes: 'right' })
   put(seconds(0.4), { eyes: 'ahead' })
   jump([2, 4, 4, 2], 0, 1)
   put(2)
@@ -572,8 +606,13 @@ export function storyOf(): Story {
   put(seconds(0.2), { eyes: 'ahead' })
   walk(home, framesFor(greet, home, WALK_STEP), WALK)
 
-  // Home again: a heart for the spark, both arms waved, and a last puff of breath.
-  put(seconds(0.3), { eyes: 'right' })
+  // Home again, where the spark pops up out of the snow: "!", then a heart for it, both
+  // arms waved, and a last puff of breath.
+  const homeAgain = script.frames.length
+
+  put(1, { eyes: 'right', say: 'alert', crouch: true, legs: 'tuck' })
+  put(seconds(0.5), { crouch: false, legs: 'stand' })
+  put(0, { say: 'none' })
 
   for (let wave = 0; wave < 3; wave++) {
     put(3, { arms: 'up', say: 'love' })
@@ -586,19 +625,63 @@ export function storyOf(): Story {
 
   // The spark keeps about one speed at the reference width.
   const distance = pixelsOf(far, REFERENCE_WIDTH) - pixelsOf(sparkHome, REFERENCE_WIDTH)
+  const backFrames = seconds(Math.max(1.4, distance / 115))
 
   return {
-    frames: dressed(script.frames, true),
+    frames: dived(dressed(script.frames, true), back + backFrames + seconds(1), homeAgain - 2),
     spark: {
       home: sparkHome,
       far,
       out,
       outFrames: seconds(Math.max(1.6, distance / 100)),
       back,
-      backFrames: seconds(Math.max(1.4, distance / 115)),
+      backFrames,
     },
   }
 }
+
+// The spark diving into the snow, a frame at a time: how far down, how big, and the
+// snow it kicks up. Then out again with a bounce.
+const DIVE: readonly (readonly [number, number, Burst])[] = [
+  [2, 0.9, 'snow1'],
+  [5, 0.7, 'snow2'],
+  [8, 0.4, 'snow3'],
+  [11, 0, 'none'],
+]
+const POP: readonly (readonly [number, number, Burst])[] = [
+  [8, 0.5, 'snow1'],
+  [0, 1.25, 'snow2'],
+  [-4, 1.1, 'snow3'],
+  [-2, 1, 'none'],
+]
+
+// Home from its dash while the character walks back, the spark dives into the snow
+// at `from`, stays under it, and pops out at `to`, as the character comes home.
+function dived(frames: readonly Frame[], from: number, to: number): Frame[] {
+  const under = from + DIVE.length
+  const [deep = 0] = DIVE[DIVE.length - 1] ?? []
+
+  return frames.map((frame, index) => {
+    const move = index < under ? DIVE[index - from] : POP[index - to]
+
+    if (move !== undefined) {
+      const [sparkDip, sparkScale, burst] = move
+
+      return { ...frame, sparkDip, sparkScale, burst }
+    }
+
+    if (index < under || index >= to) {
+      return frame
+    }
+    // Under the snow, it stirs now and then, a little snow flying up where it hides.
+    const isStirring = (index - under) % PEEK_EVERY >= PEEK_EVERY - 2
+
+    return { ...frame, sparkDip: deep, sparkScale: 0, burst: isStirring ? 'snow1' : 'none' }
+  })
+}
+
+// How often, in frames, the hidden spark stirs under the snow.
+const PEEK_EVERY = 40
 
 // Where the robin comes from, perches on the hat, and flies off to, in CSS pixels.
 const ROBIN_FROM = { x: -8 * UNIT, y: -2 * UNIT }
@@ -932,6 +1015,20 @@ export function workingOf({
 }: Pick<Work, 'activity' | 'opening' | 'tone'> = FRESH_WORK): Reel {
   const intro = scriptFrom(HOME)
 
+  if (opening === 'stay') {
+    // The same work, only harder: on with it, the prop out from the first frame.
+    const prop = scriptFrom(HOME)
+
+    setOut(prop, activity)
+
+    const loop = scriptFrom(prop.now())
+
+    WORK_AT[activity](loop)
+
+    const frames = tone === 'urgent' ? sweating(loop.frames) : loop.frames
+
+    return { intro: [], loop: frames, poster: frames[0] ?? HOME }
+  }
   if (opening === 'switch') {
     intro.put(2, { laptop: 'poof' })
     intro.put(0, { laptop: 'none' })
@@ -991,6 +1088,52 @@ export function sleepingOf(): Reel {
   put(seconds(0.6))
 
   return { intro: intro.frames, loop: loop.frames, poster: loop.frames.find(frame => frame.say === 'z2') ?? HOME }
+}
+
+/**
+ * A focus session: it sits down in the snow beside the spark, shuts its eyes, and
+ * sits still, its breath puffing in the cold now and then.
+ */
+export function focusingOf(): Reel {
+  const intro = scriptFrom(HOME)
+
+  intro.put(seconds(0.4), { eyes: 'down' })
+  intro.put(2, { crouch: true, legs: 'tuck', arms: 'calm' })
+  intro.put(seconds(0.5), { eyes: 'downShut' })
+  intro.put(0, { eyes: 'shut' })
+
+  const loop = scriptFrom(intro.now())
+
+  loop.put(seconds(3))
+  loop.puff()
+  loop.put(seconds(4))
+  loop.puff()
+  loop.put(seconds(1))
+
+  return { intro: intro.frames, loop: loop.frames, poster: loop.frames[0] ?? HOME }
+}
+
+/**
+ * The focus session over: a bell rings over the spark. The character opens its eyes,
+ * stands, stretches, and waves at the bell, happy.
+ */
+export function ringingOf(): Reel {
+  const intro = scriptFrom({ ...HOME, crouch: true, legs: 'tuck', arms: 'calm', eyes: 'shut' })
+
+  intro.put(seconds(0.3), { eyes: 'ahead' })
+  intro.put(2, { crouch: false, legs: 'stand', arms: 'rest' })
+  intro.put(seconds(0.8), { arms: 'up', eyes: 'happy' })
+  intro.put(seconds(0.3), { arms: 'rest' })
+
+  const loop = scriptFrom(intro.now())
+
+  for (let wave = 0; wave < 3; wave++) {
+    loop.put(3, { arms: 'up' })
+    loop.put(3, { arms: 'rest' })
+  }
+  loop.put(seconds(0.5), { eyes: 'right' })
+
+  return { intro: intro.frames, loop: loop.frames, poster: loop.frames[0] ?? HOME }
 }
 
 /**
@@ -1057,6 +1200,12 @@ export function reelOf(mood: Mood, story: Story = storyOf(), work: Work = FRESH_
   }
   if (mood === 'sleep') {
     return sleepingOf()
+  }
+  if (mood === 'focus') {
+    return focusingOf()
+  }
+  if (mood === 'bell') {
+    return ringingOf()
   }
   const chase = story.frames
   const home = chase[0] ?? HOME
@@ -1330,14 +1479,21 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1)
     'spark-tilt',
     story.frames.map(frame => `transform:rotate(${frame.tilt}deg)`),
   )
+  // Swelling to sneeze, and diving into the snow and out.
+  const pose = smoothOf(
+    'spark-pose',
+    story.frames.map(frame => `transform:translateY(${frame.sparkDip}px) scale(${frame.sparkScale})`),
+  )
 
   if (mood === 'idle') {
     return [
       `${home};animation:spark-x ${loop} linear infinite}`,
       `.spark-spin{animation:spark-spin ${loop} linear infinite}`,
       `.spark-tilt{animation:spark-tilt ${loop} linear infinite}`,
+      `.spark-pose{animation:spark-pose ${loop} linear infinite}`,
       rollCssOf(story),
       tilt,
+      pose,
     ].join('\n')
   }
 
@@ -1345,20 +1501,46 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1)
     return `${home}}`
   }
 
+  if (mood === 'focus') {
+    // Still, its glow breathing softly, while its rays go out.
+    return [
+      `${home}}`,
+      '.glow{opacity:0.3;animation:glow-soft 5s ease-in-out infinite}',
+      '@keyframes glow-soft{0%,100%{opacity:0.2}50%{opacity:0.4}}',
+    ].join('\n')
+  }
+
+  if (mood === 'bell') {
+    // Relit, all its rays back, and whirling for the bell.
+    return [
+      `${home}}`,
+      '.spark-spin{animation:spark-whirl 2s linear infinite}',
+      '@keyframes spark-whirl{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}',
+      '.glow{opacity:0.5;animation:glow 1.8s ease-in-out infinite}',
+      '@keyframes glow{0%,100%{opacity:0.5;transform:scale(0.9)}50%{opacity:0.85;transform:scale(1.05)}}',
+    ].join('\n')
+  }
+
   if (mood === 'working') {
-    const whirl = Number((WHIRL_SECONDS[work.activity] / tempo).toFixed(3))
-    const pulse = '@keyframes glow{0%,100%{opacity:0.5;transform:scale(0.9)}50%{opacity:0.85;transform:scale(1.05)}}'
+    // The harder the turn works, the faster the spark whirls, and the quicker and
+    // brighter its glow beats.
+    const pace = HEAT_PACE[work.heat]
+    const whirl = Number(((WHIRL_SECONDS[work.activity] * pace) / tempo).toFixed(3))
+    const beat = Number((1.8 * pace).toFixed(2))
+    const low = Number((0.5 + 0.08 * work.heat).toFixed(2))
+    const high = Number(Math.min(1, 0.85 + 0.05 * work.heat).toFixed(2))
+    const pulse = `@keyframes glow{0%,100%{opacity:${low};transform:scale(0.9)}50%{opacity:${high};transform:scale(1.05)}}`
     const spin = '@keyframes spark-whirl{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}'
 
     if (whirl === 0) {
-      return [`${home}}`, '.glow{opacity:0.5;animation:glow 2.6s ease-in-out infinite}', pulse].join('\n')
+      return [`${home}}`, `.glow{opacity:${low};animation:glow 2.6s ease-in-out infinite}`, pulse].join('\n')
     }
-    if (work.opening === 'switch') {
+    if (work.opening !== 'start') {
       return [
         `${home}}`,
         `.spark-spin{animation:spark-whirl ${whirl}s linear infinite}`,
         spin,
-        '.glow{opacity:0.5;animation:glow 1.8s ease-in-out infinite}',
+        `.glow{opacity:${low};animation:glow ${beat}s ease-in-out infinite}`,
         pulse,
       ].join('\n')
     }
@@ -1384,8 +1566,10 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1)
     `.spark-spin{animation:spark-settle ${settle} ${SPIN_DOWN},spark-spin ${loop} linear ${intro} infinite}`,
     '@keyframes spark-settle{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}',
     `.spark-tilt{animation:spark-tilt ${loop} linear ${intro} infinite}`,
+    `.spark-pose{animation:spark-pose ${loop} linear ${intro} infinite}`,
     rollCssOf(story),
     tilt,
+    pose,
     '.glow{opacity:0;animation:glow-out 0.6s ease-in}',
     '@keyframes glow-out{from{opacity:0.5;transform:scale(0.9)}to{opacity:0;transform:scale(0.6)}}',
   ]
@@ -1418,13 +1602,119 @@ const RAYS: readonly (readonly [number, number])[] = [
   [328, 8.6],
 ]
 
-function raysOf(): string {
+const msAsSeconds = (ms: number) => `${Number((ms / 1000).toFixed(3))}s`
+
+// Through a focus session the rays go out one at a time, round the spark from its top,
+// the last as the time is up. How far in the session the band is drawn counts, so a
+// band drawn again midway shows the rays already out. Their going out is a clock, not
+// a move: calm and reduced motion keep it.
+const RAY_OUT =
+  '.ray-left{animation-name:ray-out;animation-timing-function:step-end;animation-fill-mode:forwards;animation-iteration-count:1}' +
+  '@keyframes ray-out{0%{opacity:1}100%{opacity:0}}'
+
+// The ray that points up, the first to go out.
+const TOP_RAY = 8
+
+function raysOf(focus?: FocusTime): string {
   return RAYS.map(([angle, length], index) => {
     // Neighbors breathe out of step, so the spark shimmers instead of pulsing whole.
     const delay = ((index * 7) % RAYS.length) * 0.22
+    const ray = `<line class="ray" x1="0" y1="0" x2="${length}" y2="0" style="animation-delay:-${delay.toFixed(2)}s"/>`
 
-    return `<g transform="rotate(${angle})"><line class="ray" x1="0" y1="0" x2="${length}" y2="0" style="animation-delay:-${delay.toFixed(2)}s"/></g>`
+    if (focus === undefined) {
+      return `<g transform="rotate(${angle})">${ray}</g>`
+    }
+    const turn = (index - TOP_RAY + RAYS.length) % RAYS.length
+    const out = (focus.totalMs * (turn + 1)) / RAYS.length
+
+    return (
+      `<g transform="rotate(${angle})"><g class="ray-left" ` +
+      `style="animation-duration:${msAsSeconds(out)};animation-delay:-${msAsSeconds(focus.elapsedMs)}">${ray}</g></g>`
+    )
   }).join('')
+}
+
+// Where the bell hangs at the end of a focus session: over the spark at home.
+const BELL_AT = { x: UNIT + SIDE_BY_SIDE + SPARK_BOX / 2 - 3 * UNIT, y: 1 }
+
+// The bell, swinging from its top, and the lines of its ring flashing by turns.
+function bellOf(): Layer {
+  return {
+    svg:
+      `<g class="px" transform="translate(${BELL_AT.x} ${BELL_AT.y})">` +
+      `<g class="bell"><path fill="${BELL_GOLD}" d="${pathOf(BELL.body)}"/><path fill="${COAL}" d="${pathOf(BELL.clapper)}"/></g>` +
+      `<path class="ring-near" fill="${BELL_GOLD}" d="${pathOf(RING.near)}"/>` +
+      `<path class="ring-far" fill="${BELL_GOLD}" d="${pathOf(RING.far)}"/></g>`,
+    css:
+      '.bell{transform-box:fill-box;transform-origin:50% 0;animation:bell 0.5s ease-in-out infinite alternate}' +
+      '@keyframes bell{from{transform:rotate(-16deg)}to{transform:rotate(16deg)}}' +
+      '.ring-near,.ring-far{animation:ring 1s step-end infinite}.ring-far{animation-delay:-0.5s}' +
+      '@keyframes ring{0%{opacity:1}50%{opacity:0}}',
+  }
+}
+
+// Hot at its work, the spark throws off embers that rise from its top and fade: three
+// at the third heat, six at the fourth, each on its own drift.
+function risingOf(heat: Heat): Layer {
+  const count = heat >= 3 ? 6 : heat >= 2 ? 3 : 0
+  let svg = ''
+
+  for (let index = 0; index < count; index++) {
+    const x = ((index * 5) % 9) - 4
+    const drift = ((index * 3) % 5) - 2
+
+    svg +=
+      `<rect class="rise" x="${x - UNIT / 2}" y="${-SPARK_RADIUS}" width="${UNIT}" height="${UNIT}" ` +
+      `fill="${index % 2 === 0 ? TRAIL_LIGHT : ORANGE}" style="--drift:${drift * UNIT}px;animation-delay:-${(index * 0.37).toFixed(2)}s"/>`
+  }
+
+  return {
+    svg,
+    css:
+      count === 0
+        ? ''
+        : '.rise{opacity:0;animation:rise 1.3s linear infinite}' +
+          '@keyframes rise{0%{opacity:1;transform:translate(0,0)}100%{opacity:0;transform:translate(var(--drift),-12px)}}',
+  }
+}
+
+// A hard turn answered: the spark sends up three rockets in turn, around its center,
+// each bursting into eight sparks of its own color.
+const FIREWORKS: readonly { x: number; y: number; at: number; fill: string }[] = [
+  { x: 10, y: -14, at: 0.15, fill: PARTY_GOLD },
+  { x: -8, y: -16, at: 0.6, fill: KNIT_PINK },
+  { x: 26, y: -12, at: 1.05, fill: CODE_BLUE },
+]
+const ROCKET_SECONDS = 0.3
+
+function fireworksOf(): Layer {
+  let svg = ''
+
+  for (const { x, y, at, fill } of FIREWORKS) {
+    svg +=
+      `<rect class="rocket" x="${-UNIT / 2}" y="${-UNIT / 2}" width="${UNIT}" height="${UNIT}" fill="${ORANGE}" ` +
+      `style="--dx:${x}px;--dy:${y}px;animation-delay:${at}s"/>`
+
+    for (let ray = 0; ray < 8; ray++) {
+      const angle = (ray * Math.PI) / 4
+      const dx = Math.round(Math.cos(angle) * 4) * UNIT
+      const dy = Math.round(Math.sin(angle) * 4) * UNIT
+
+      svg +=
+        `<rect class="firework" x="${x - UNIT / 2}" y="${y - UNIT / 2}" width="${UNIT}" height="${UNIT}" fill="${fill}" ` +
+        `style="--dx:${dx}px;--dy:${dy}px;animation-delay:${(at + ROCKET_SECONDS).toFixed(2)}s"/>`
+    }
+  }
+
+  return {
+    svg,
+    css:
+      '.rocket,.firework{opacity:0}' +
+      `.rocket{animation:rocket ${ROCKET_SECONDS}s ease-out forwards}` +
+      '@keyframes rocket{0%{opacity:1;transform:translate(0,0)}99%{opacity:1}100%{opacity:0;transform:translate(var(--dx),var(--dy))}}' +
+      '.firework{animation:firework 0.8s ease-out forwards}' +
+      '@keyframes firework{0%{opacity:1;transform:translate(0,0)}70%{opacity:1}100%{opacity:0;transform:translate(var(--dx),var(--dy))}}',
+  }
 }
 
 // New Year's confetti: pieces falling the height of the band in pixel steps, each on a
@@ -1521,7 +1811,7 @@ function textOf(css: string): string {
 
 // Everything that moves: what reduced motion holds still, and /winter calm too.
 const MOVING =
-  '.m,.ray,.spark-x,.spark-hop,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint,.confetti,.lantern-lit,.helper,.helper-a,.helper-b'
+  '.m,.ray,.spark-x,.spark-hop,.spark-pose,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint,.confetti,.lantern-lit,.helper,.helper-a,.helper-b,.rise,.rocket,.firework,.bell,.ring-near,.ring-far'
 
 const STILL = `:is(${MOVING}){animation:none!important}`
 
@@ -1572,7 +1862,13 @@ const EMBER_FADE = 5
  */
 export function bandOf(
   mood: Mood = 'idle',
-  { calm = false, occasion = 'none', work = FRESH_WORK }: { calm?: boolean; occasion?: Occasion; work?: Work } = {},
+  {
+    calm = false,
+    occasion = 'none',
+    work = FRESH_WORK,
+    grand = false,
+    focus = { totalMs: 25 * 60_000, elapsedMs: 0 },
+  }: { calm?: boolean; occasion?: Occasion; work?: Work; grand?: boolean; focus?: FocusTime } = {},
 ): string {
   const story = storyOf()
   const reel = reelOf(mood, story, work)
@@ -1580,8 +1876,9 @@ export function bandOf(
   const frames = [...intro, ...loop]
   // The spark glows at work and fades out of it, and has no glow in the chase or asleep.
   const isLit = mood !== 'idle' && mood !== 'sleep'
-  // The footprints and the shed sparks follow the chase, which work and sleep have none of.
-  const isChase = mood !== 'working' && mood !== 'sleep'
+  // The footprints and the shed sparks follow the chase, which work, sleep and a focus
+  // session have none of.
+  const isChase = mood === 'idle' || mood === 'joy' || mood === 'puzzled' || mood === 'closing'
   const chaseFrames = story.frames.length
   const chaseLoop = secondsOf(chaseFrames)
   const introSeconds = intro.length / FPS
@@ -1672,6 +1969,9 @@ export function bandOf(
     layerOf('note-lines', { on: NOTE.lines }, isNote, reel, FOLD),
   ]
   const blush = layerOf('blush', { on: BLUSH }, frame => (frame.blush ? 'on' : 'none'), reel, BLUSH_PINK)
+  // What the spark throws about: sparks when it sneezes, snow when it dives or pops out.
+  const sneeze = layerOf('sneeze', SNEEZE, frame => frame.burst, reel, ORANGE)
+  const kick = layerOf('kick', KICK, frame => frame.burst, reel, FLAKE_BLUE)
   const sweat = layerOf('sweat', SWEAT, frame => frame.sweat, reel, SWEAT_BLUE)
   const hasPlane = frames.some(frame => frame.plane !== null)
   const pal = layerOf('pal', SNOWMAN_ARMS, frame => frame.pal, reel, STICK)
@@ -1706,6 +2006,12 @@ export function bandOf(
         `style="transform:translateX(${cssOf(shift(ember.at, -1))});animation-delay:${delayOf(ember.frame)}"/>`
     }
   }
+
+  // How hard the work is going, in embers; and fireworks for a hard turn answered.
+  const rising = mood === 'working' ? risingOf(work.heat) : { svg: '', css: '' }
+  const fireworks = mood === 'joy' && grand ? fireworksOf() : { svg: '', css: '' }
+  // The bell at the end of a focus session.
+  const bell = mood === 'bell' ? bellOf() : { svg: '', css: '' }
 
   // What the occasion brings: confetti for New Year, a lantern for Ramadan.
   const confetti = occasion === 'newyear' ? confettiOf() : { svg: '', css: '' }
@@ -1764,6 +2070,8 @@ export function bandOf(
     ...note.map(layer => layer.css),
     blush.css,
     sweat.css,
+    sneeze.css,
+    kick.css,
     helpers.css,
     sparkCssOf(mood, reel, story, work, tempo),
     // Every footprint and shed spark shares one fade on the chase's clock.
@@ -1773,6 +2081,10 @@ export function bandOf(
     `@keyframes ember{0%{opacity:1}${percent(EMBER_FADE, chaseFrames)}{opacity:0}100%{opacity:0}}`,
     confetti.css,
     lantern.css,
+    rising.css,
+    fireworks.css,
+    bell.css,
+    mood === 'focus' ? RAY_OUT : '',
     // Now and then the light catches the ice.
     '.glint{opacity:0;animation:glint 5s step-end infinite}',
     '@keyframes glint{0%{opacity:0}86%{opacity:0.9}92%{opacity:0}}',
@@ -1806,7 +2118,8 @@ export function bandOf(
   const defs = isLit
     ? `<defs><radialGradient id="glow"><stop offset="0" stop-color="${ORANGE}" stop-opacity="0.65"/><stop offset="1" stop-color="${ORANGE}" stop-opacity="0"/></radialGradient></defs>`
     : ''
-  const glow = isLit ? `<circle class="glow" r="${SPARK_RADIUS + 3}" fill="url(#glow)"/>` : ''
+  const glowRadius = SPARK_RADIUS + 3 + (mood === 'working' ? 2 * work.heat : 0)
+  const glow = isLit ? `<circle class="glow" r="${glowRadius}" fill="url(#glow)"/>` : ''
   const iceStart = `${Number((TRACK.iceStart.of * 100).toFixed(3))}%`
   const iceWidth = `${Number(((TRACK.iceEnd.of - TRACK.iceStart.of) * 100).toFixed(3))}%`
   const ground =
@@ -1842,8 +2155,8 @@ ${ground}${marks}
 ${snowman}${lantern.svg}
 <g class="m walker px" fill-opacity="0.22">${shadows.svg}</g>
 ${embers}
-<g class="spark-x"><g class="spark-hop"><g transform="translate(${SPARK_BOX / 2} ${SPARK_CENTER_Y})">${glow}<g class="spark-tilt"><g class="spark-wind"><g class="spark-spin">${raysOf()}</g></g></g></g></g></g>
-${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}${confetti.svg}${helpers.svg}
+<g class="spark-x"><g class="spark-hop"><g transform="translate(${SPARK_BOX / 2} ${SPARK_CENTER_Y})">${glow}<g class="spark-pose"><g class="spark-tilt"><g class="spark-wind"><g class="spark-spin">${raysOf(mood === 'focus' ? focus : undefined)}</g></g></g></g><g class="px">${sneeze.svg}${kick.svg}${rising.svg}${fireworks.svg}</g></g></g></g>
+${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}${confetti.svg}${bell.svg}${helpers.svg}
 <g class="m walker px">${answer.zones}<g class="poke"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${blush.svg}${sweat.svg}${scope.map(layer => layer.svg).join('')}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${snores.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}${props.map(layer => layer.svg).join('')}${note.map(layer => layer.svg).join('')}</g>
 ${hasPlane ? `<g class="m plane-at px">${plane.map(layer => layer.svg).join('')}</g>` : ''}${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}
 </svg>`
