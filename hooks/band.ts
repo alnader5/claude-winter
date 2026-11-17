@@ -26,6 +26,7 @@ import {
   BREATH_GRAY,
   CARROT,
   COAL,
+  CONFETTI,
   EYE,
   EYES,
   FACE,
@@ -37,11 +38,17 @@ import {
   HINGE_GRAY,
   KNIT_PINK,
   KNIT_RED,
+  LANTERN,
+  LANTERN_GLOW,
+  LANTERN_GOLD,
   LEGS,
   LID,
   LID_GRAY,
   LOGO,
   ORANGE,
+  PARTY_GOLD,
+  PARTY_HAT,
+  PARTY_PURPLE,
   ROBIN_BACK,
   ROBIN_BEAK,
   ROBIN_BREAST,
@@ -70,14 +77,15 @@ import {
   pathOf,
 } from './sprite'
 import type { Laptop, Rect } from './sprite'
+import type { Occasion } from './time'
 
 export const BAND_HEIGHT = 36
 
 // The character's frame rate.
 export const FPS = 12
 
-export type Mood = 'idle' | 'working' | 'joy' | 'puzzled' | 'closing'
-export type Ending = Exclude<Mood, 'idle' | 'working'>
+export type Mood = 'idle' | 'working' | 'joy' | 'puzzled' | 'closing' | 'sleep'
+export type Ending = Exclude<Mood, 'idle' | 'working' | 'sleep'>
 
 // The band in words, for a screen reader: what it shows, and in a mood what that means.
 export const ALT: Readonly<Record<Mood, string>> = {
@@ -86,6 +94,7 @@ export const ALT: Readonly<Record<Mood, string>> = {
   joy: "Claude's pixel character jumping for joy beside the spark: Claude has answered",
   puzzled: "Claude's pixel character puzzled beside the spark: the turn ended without an answer",
   closing: "Claude's pixel character folding its laptop away beside the spark: the turn was stopped",
+  sleep: "Claude's pixel character asleep in the snow beside the spark: it is late at night",
 }
 
 // The snowy ground along the band's foot: a gray-blue edge over white, so it shows on
@@ -97,6 +106,8 @@ const ICE_EDGE = '#79b6dc'
 const ICE = '#cdeefc'
 const GLINT = '#ffffff'
 const PRINT = '#7f97b0'
+// The z's of a sleeper, in the gray-blue of the snow's shadows.
+const SLEEP_BLUE = '#7f97b0'
 const TRAIL_LIGHT = '#f2a27f'
 
 // The sprite's top row while it stands on the snow.
@@ -549,6 +560,36 @@ export function workingOf(): Reel {
 }
 
 /**
+ * Late at night with nothing to do: a yawn at home beside the spark, then sleep in the
+ * snow, the z's coming and going and its breath puffing in the cold.
+ */
+export function sleepingOf(): Reel {
+  const intro = scriptFrom(HOME)
+
+  intro.put(seconds(0.5), { eyes: 'up' })
+  intro.put(seconds(0.6), { eyes: 'shut' })
+  intro.put(2, { eyes: 'ahead' })
+  intro.put(seconds(0.5), { eyes: 'shut' })
+  intro.put(2, { crouch: true, legs: 'tuck' })
+
+  const loop = scriptFrom(intro.now())
+  const { put, puff } = loop
+  const snore = () => {
+    put(seconds(0.8), { say: 'z1' })
+    put(seconds(0.8), { say: 'z2' })
+    put(seconds(0.8), { say: 'z3' })
+    put(seconds(0.5), { say: 'none' })
+  }
+
+  snore()
+  puff()
+  snore()
+  put(seconds(0.6))
+
+  return { intro: intro.frames, loop: loop.frames, poster: loop.frames.find(frame => frame.say === 'z2') ?? HOME }
+}
+
+/**
  * How a turn's end is met, from the laptop as the work left it to home, standing,
  * where the chase begins.
  */
@@ -609,6 +650,9 @@ const SIGN: Readonly<Record<Ending, Say>> = { joy: 'done', puzzled: 'ask', closi
 export function reelOf(width: number, mood: Mood, story: Story = storyOf(width)): Reel {
   if (mood === 'working') {
     return workingOf()
+  }
+  if (mood === 'sleep') {
+    return sleepingOf()
   }
   const chase = story.frames
   const home = chase[0] ?? HOME
@@ -883,6 +927,10 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story): string {
     ].join('\n')
   }
 
+  if (mood === 'sleep') {
+    return `${home}}`
+  }
+
   if (mood === 'working') {
     // Speeding up evenly over the intro, it turns half as far as the whirl would.
     const windUp = ((360 / WHIRL_SECONDS) * (reel.intro.length / FPS)) / 2
@@ -949,8 +997,49 @@ function raysOf(): string {
   }).join('')
 }
 
+// New Year's confetti: pieces falling the height of the band in pixel steps, each on a
+// loop of its own and drifting a little to one side. Held still, they are out of sight
+// over the band.
+function confettiOf(width: number): Layer {
+  let svg = ''
+
+  for (let index = 0, count = Math.round(width / 22); index < count; index++) {
+    const x = even((((index * 37) % 100) / 100) * (width - 8) + 4)
+    const loop = 3 + ((index * 7) % 5) * 0.4
+    const delay = (((index * 13) % 10) / 10) * loop
+    const drift = ((index % 3) - 1) * 2 * UNIT
+
+    svg +=
+      `<rect class="confetti" x="${x}" y="${-UNIT}" width="${UNIT}" height="${UNIT}" fill="${CONFETTI[index % CONFETTI.length]}" ` +
+      `style="--drift:${drift}px;animation-duration:${loop.toFixed(1)}s;animation-delay:-${delay.toFixed(1)}s"/>`
+  }
+
+  return {
+    svg,
+    css:
+      '.confetti{shape-rendering:crispEdges;animation-name:confetti;animation-timing-function:steps(19,end);animation-iteration-count:infinite}' +
+      `@keyframes confetti{from{transform:translate(0,0)}to{transform:translate(var(--drift),${BAND_HEIGHT + UNIT}px)}}`,
+  }
+}
+
+// Ramadan's lantern, hanging from the top of the band halfway along, clear of the
+// character's head; its glass and glow flicker as a flame would.
+function lanternOf(width: number): Layer {
+  return {
+    svg:
+      `<g class="px" transform="translate(${even(width * 0.5)} 0)">` +
+      `<circle class="lantern-lit" cx="${2.5 * UNIT}" cy="${4 * UNIT}" r="${4 * UNIT}" fill="${LANTERN_GLOW}" fill-opacity="0.3"/>` +
+      `<path fill="${LANTERN_GOLD}" d="${pathOf(LANTERN.frame)}"/>` +
+      `<path class="lantern-lit" fill="${LANTERN_GLOW}" d="${pathOf(LANTERN.glass)}"/></g>`,
+    css:
+      '.lantern-lit{animation:flicker 1.7s step-end infinite}' +
+      '@keyframes flicker{0%{opacity:1}23%{opacity:0.78}31%{opacity:1}64%{opacity:0.88}71%{opacity:1}}',
+  }
+}
+
 // Everything that moves: what reduced motion holds still, and /winter calm too.
-const MOVING = '.m,.ray,.spark-x,.spark-hop,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint'
+const MOVING =
+  '.m,.ray,.spark-x,.spark-hop,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint,.confetti,.lantern-lit'
 
 const STILL = `:is(${MOVING}){animation:none!important}`
 
@@ -979,17 +1068,23 @@ const INTERACTIVE = [
 /**
  * The band's drawing in a mood, for a track `width` CSS pixels wide. `calm`, as the
  * person asks with /winter calm, holds it still on its still frame, with no answer to
- * the pointer.
+ * the pointer. `occasion` dresses it: a party hat and confetti for New Year, a lantern
+ * for Ramadan.
  */
-export function bandOf(width: number, mood: Mood = 'idle', { calm = false }: { calm?: boolean } = {}): string {
+export function bandOf(
+  width: number,
+  mood: Mood = 'idle',
+  { calm = false, occasion = 'none' }: { calm?: boolean; occasion?: Occasion } = {},
+): string {
   const story = storyOf(width)
   const track = trackOf(width)
   const reel = reelOf(width, mood, story)
   const { intro, loop, poster } = reel
   const frames = [...intro, ...loop]
-  const isLit = mood !== 'idle'
-  // The footprints and the shed sparks follow the chase, which the work has none of.
-  const isChase = mood !== 'working'
+  // The spark glows at work and fades out of it, and has no glow in the chase or asleep.
+  const isLit = mood !== 'idle' && mood !== 'sleep'
+  // The footprints and the shed sparks follow the chase, which work and sleep have none of.
+  const isChase = mood !== 'working' && mood !== 'sleep'
   const chaseLoop = secondsOf(story.frames.length)
   const chaseDelay = secondsOf(intro.length)
 
@@ -1029,6 +1124,13 @@ export function bandOf(width: number, mood: Mood = 'idle', { calm = false }: { c
     ORANGE,
   )
   const love = layerOf('say', { love: balloonOf(SAY.love) }, frame => frame.say, reel, HEART)
+  const snores = layerOf(
+    'say',
+    { z1: balloonOf(SAY.z1), z2: balloonOf(SAY.z2), z3: balloonOf(SAY.z3) },
+    frame => frame.say,
+    reel,
+    SLEEP_BLUE,
+  )
   const tick = layerOf('say', { done: balloonOf(SAY.done) }, frame => frame.say, reel, TICK)
   const lid = layerOf('lid', LID, frame => frame.laptop, reel, LID_GRAY)
   const hinge = layerOf(
@@ -1071,6 +1173,9 @@ export function bandOf(width: number, mood: Mood = 'idle', { calm = false }: { c
     })
   }
 
+  // What the occasion brings: confetti for New Year, a lantern for Ramadan.
+  const confetti = occasion === 'newyear' ? confettiOf(width) : { svg: '', css: '' }
+  const lantern = occasion === 'ramadan' ? lanternOf(width) : { svg: '', css: '' }
   const css = [
     timing,
     '.hidden{opacity:0}',
@@ -1098,6 +1203,7 @@ export function bandOf(width: number, mood: Mood = 'idle', { calm = false }: { c
     breath.css,
     words.css,
     love.css,
+    snores.css,
     tick.css,
     lid.css,
     hinge.css,
@@ -1109,10 +1215,12 @@ export function bandOf(width: number, mood: Mood = 'idle', { calm = false }: { c
     // Each footprint and shed spark runs its own keyframes on the chase's clock.
     `.print,.ember{opacity:0;animation-duration:${chaseLoop};animation-delay:${chaseDelay};animation-timing-function:linear;animation-iteration-count:infinite}`,
     marksCss,
+    confetti.css,
+    lantern.css,
     // Now and then the light catches the ice.
     '.glint{opacity:0;animation:glint 5s step-end infinite}',
     '@keyframes glint{0%{opacity:0}86%{opacity:0.9}92%{opacity:0}}',
-    `.ray{stroke:${ORANGE};stroke-width:2.1;stroke-linecap:round;animation:breathe ${mood === 'working' ? 1.3 : 2.6}s ease-in-out infinite}`,
+    `.ray{stroke:${ORANGE};stroke-width:2.1;stroke-linecap:round;animation:breathe ${mood === 'working' ? 1.3 : mood === 'sleep' ? 4 : 2.6}s ease-in-out infinite}`,
     '@keyframes breathe{0%,100%{transform:scaleX(1)}50%{transform:scaleX(0.7)}}',
     `@media (prefers-reduced-motion: reduce){${MOVING}{animation:none}}`,
     calm ? STILL : INTERACTIVE,
@@ -1151,11 +1259,12 @@ export function bandOf(width: number, mood: Mood = 'idle', { calm = false }: { c
     `<path fill="${COAL}" d="${pathOf(SNOWMAN.coal)}"/>` +
     `<path fill="${CARROT}" d="${pathOf(SNOWMAN.carrot)}"/>` +
     `${pal.svg}</g>`
+  const hat =
+    occasion === 'newyear'
+      ? `<path fill="${PARTY_PURPLE}" d="${pathOf(PARTY_HAT.cone)}"/><path fill="${PARTY_GOLD}" d="${pathOf(PARTY_HAT.stripes)}"/>`
+      : `<path fill="${KNIT_RED}" d="${pathOf(HAT.crown)}"/><path fill="${KNIT_PINK}" d="${pathOf([...HAT.cuff, ...HAT.pom])}"/>`
   const clothes =
-    `<path fill="${KNIT_RED}" d="${pathOf(HAT.crown)}"/>` +
-    `<path fill="${KNIT_PINK}" d="${pathOf([...HAT.cuff, ...HAT.pom])}"/>` +
-    `<path fill="${KNIT_RED}" d="${pathOf(SCARF_WRAP)}"/>` +
-    `<path fill="${STRIPE}" d="${pathOf(SCARF_STRIPES)}"/>`
+    hat + `<path fill="${KNIT_RED}" d="${pathOf(SCARF_WRAP)}"/>` + `<path fill="${STRIPE}" d="${pathOf(SCARF_STRIPES)}"/>`
 
   // Back to front: the snow and its footprints, the snowman, the shadow, the shed
   // sparks under the spark, the snowflake on it, the character and its laptop, and the
@@ -1165,12 +1274,12 @@ export function bandOf(width: number, mood: Mood = 'idle', { calm = false }: { c
 ${css}
 </style>${defs}
 ${ground}${marks}
-${snowman}
+${snowman}${lantern.svg}
 <g class="m walker px" fill-opacity="0.22">${shadows.svg}</g>
 ${embers}
 <g class="spark-x"><g class="spark-hop"><g transform="translate(${SPARK_BOX / 2} ${SPARK_CENTER_Y})">${glow}<g class="spark-tilt"><g class="spark-wind"><g class="spark-spin">${raysOf()}</g></g></g></g></g></g>
-${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}
-<g class="m walker px"><g class="poke"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}</g>
+${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}${confetti.svg}
+<g class="m walker px"><g class="poke"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${snores.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}</g>
 ${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}
 </svg>`
 }

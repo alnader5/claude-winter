@@ -1,12 +1,13 @@
 import { atom, read, update } from 'claude-code'
-import type { Register, ThemeSetArgs, TurnCompleteReason } from 'claude-code'
+import type { EngineInterface, Register, ThemeSetArgs, Timer, TurnCompleteReason } from 'claude-code'
 
-import type { Motion } from '../types'
+import type { Motion, Occasion, Sky } from '../types'
 import { ALT, BAND_HEIGHT, ENDING_MS, bandOf } from './band'
 import type { Ending, Mood } from './band'
 import { makeColors } from './make-colors.js'
 import { WINTER } from './palette'
-import { SCENE, SCENE_ALT, SCENE_CALM, SCENE_NAME } from './scene'
+import { SCENE_ALT, SCENE_NAME, sceneOf } from './scene'
+import { sameWhen, whenOf } from './time'
 
 const { theme, problems } = makeColors(WINTER)
 
@@ -16,28 +17,42 @@ const LOOK: ThemeSetArgs = {
   backdrop: { scene: SCENE_NAME, glass: { blur: 4, opacity: 0.64 } },
 }
 
-// The band's track in CSS pixels, narrower on a phone. Each drawing is made the first
-// time it is asked for, and kept.
+// The band's track in CSS pixels, narrower on a phone. Each drawing, of the band or of
+// the backdrop, is made the first time it is asked for, and kept.
 const WIDTH = { desktop: 320, mobile: 220 } as const
 const drawings = new Map<string, string>()
 
-function drawingOf(surface: keyof typeof WIDTH, mood: Mood, calm: boolean): string {
-  const key = `${surface}:${mood}:${calm ? 'calm' : 'moving'}`
+function drawn(key: string, draw: () => string): string {
   let drawing = drawings.get(key)
 
   if (drawing === undefined) {
-    drawing = bandOf(WIDTH[surface], mood, { calm })
+    drawing = draw()
     drawings.set(key, drawing)
   }
 
   return drawing
 }
 
+const bandFor = (surface: keyof typeof WIDTH, mood: Mood, calm: boolean, occasion: Occasion) =>
+  drawn(`band:${surface}:${mood}:${calm}:${occasion}`, () => bandOf(WIDTH[surface], mood, { calm, occasion }))
+
+const sceneFor = (sky: Sky, occasion: Occasion, calm: boolean) =>
+  drawn(`scene:${sky}:${occasion}:${calm}`, () => sceneOf({ sky, occasion, calm }))
+
 // The turn the band follows: under way, or how it just ended, with its id.
 const beat = atom({ plugin: 'winter', key: 'beat' } as const, null)
 
 // How much moves, as /winter last set it; the store keeps it for the next session.
 const motion = atom({ plugin: 'winter', key: 'motion' } as const, 'on')
+
+// The sky, the occasion and the lateness, as of the last minute's look at the clock.
+const when = atom({ plugin: 'winter', key: 'when' } as const, { sky: 'day', occasion: 'none', isLate: false })
+
+// Dozing, late at night with nothing asked for a while.
+const isAsleep = atom({ plugin: 'winter', key: 'isAsleep' } as const, false)
+
+// How long the character waits, late at night, before it dozes off.
+const DOZE_AFTER_MS = 3 * 60_000
 
 const MOTIONS: readonly Motion[] = ['on', 'calm', 'off']
 const isMotion = (value: unknown): value is Motion => MOTIONS.some(one => one === value)
@@ -62,6 +77,35 @@ const ENDING_OF: Readonly<Record<TurnCompleteReason, Ending>> = {
 // the band can wait this long after it before it changes to the chase unseen.
 const SETTLE_MS = 1000
 
+// When anything last happened: a session's start, a turn, a /winter. And the minute's
+// look at the clock, started anew with each session's start.
+let stirred = 0
+let ticker: Timer | undefined
+
+// A look at the clock: the sky and the occasion, and whether to doze off. Each value is
+// written only when it changes, so nothing is drawn again for nothing.
+async function look($: EngineInterface): Promise<void> {
+  const now = await $.clock.now()
+  const next = whenOf(now)
+  const isDozing = next.isLate && now - stirred >= DOZE_AFTER_MS
+
+  if (!sameWhen(await read($, when), next)) {
+    await update($, when, () => next)
+  }
+  if ((await read($, isAsleep)) !== isDozing) {
+    await update($, isAsleep, () => isDozing)
+  }
+}
+
+// Something happened: the character is awake for a while.
+async function stir($: EngineInterface): Promise<void> {
+  stirred = await $.clock.now()
+
+  if (await read($, isAsleep)) {
+    await update($, isAsleep, () => false)
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     // While building: the line that would stop Desktop painting this look.
@@ -78,6 +122,12 @@ export const register: Register = on => {
     const kept = await $.store.get('motion')
 
     await update($, motion, () => (isMotion(kept) ? kept : 'on'))
+
+    // The clock now, and once a minute from now on.
+    await stir($)
+    await look($)
+    ticker?.cancel()
+    ticker = $.clock.every(60_000, () => void look($))
 
     const set = await $.theme.set(LOOK)
 
@@ -96,6 +146,8 @@ export const register: Register = on => {
   on('command.run', { command: 'winter' }, async ($, e) => {
     const asked = e.args.trim().toLowerCase()
 
+    await stir($)
+
     if (asked === '') {
       return { text: `${SAID[await read($, motion)]}\n${USAGE}` }
     }
@@ -111,6 +163,7 @@ export const register: Register = on => {
   // The main loop's turns alone: a subagent's come and go inside them.
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
+      await stir($)
       await update($, beat, () => ({ mood: 'working', turnId: e.turnId }))
     }
 
@@ -122,6 +175,7 @@ export const register: Register = on => {
       const mood = ENDING_OF[e.reason]
       const { turnId } = e
 
+      await stir($)
       await update($, beat, () => ({ mood, turnId }))
 
       // Then back to the chase, unless another turn has begun meanwhile.
@@ -146,15 +200,18 @@ export const register: Register = on => {
     }
 
     const now = await read($, beat)
+    const { occasion } = await read($, when)
     // The engine's word that a turn runs comes first; the beat bridges the moments
-    // around it, so the work shows from the turn's start and its end plays out.
-    const mood: Mood = e.props.isWorking ? 'working' : (now?.mood ?? 'idle')
+    // around it, so the work shows from the turn's start and its end plays out. With
+    // neither, it sleeps late at night when nothing has happened for a while.
+    const rest: Mood = (await read($, isAsleep)) ? 'sleep' : 'idle'
+    const mood: Mood = e.props.isWorking ? 'working' : (now?.mood ?? rest)
     const { Box, Svg } = $.ui.resolve(e)
 
     return (
       <Box>
         <Svg
-          source={drawingOf(e.surface, mood, how === 'calm')}
+          source={bandFor(e.surface, mood, how === 'calm', occasion)}
           alt={ALT[mood]}
           width={WIDTH[e.surface]}
           height={BAND_HEIGHT}
@@ -175,7 +232,8 @@ export const register: Register = on => {
 
     const { Svg } = $.ui.resolve(e)
     const how = await read($, motion)
+    const { sky, occasion } = await read($, when)
 
-    return <Svg source={how === 'on' ? SCENE : SCENE_CALM} alt={SCENE_ALT} isInteractive />
+    return <Svg source={sceneFor(sky, occasion, how !== 'on')} alt={SCENE_ALT} isInteractive />
   })
 }

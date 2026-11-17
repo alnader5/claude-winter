@@ -13,6 +13,7 @@ import {
   isOnIce,
   printsOf,
   reelOf,
+  sleepingOf,
   storyOf,
   trackOf,
   trailOf,
@@ -20,7 +21,20 @@ import {
 } from '../hooks/band'
 import type { Frame } from '../hooks/band'
 import { checkColors } from '../hooks/make-colors.js'
-import { CARROT, KNIT_RED, LID_GRAY, SPRITE_WIDTH, STRIPE, TICK, UNIT } from '../hooks/sprite'
+import { sceneOf } from '../hooks/scene'
+import {
+  CARROT,
+  KNIT_PINK,
+  KNIT_RED,
+  LANTERN_GOLD,
+  LID_GRAY,
+  PARTY_PURPLE,
+  SPRITE_WIDTH,
+  STRIPE,
+  TICK,
+  UNIT,
+} from '../hooks/sprite'
+import { whenOf } from '../hooks/time'
 
 const GLASS = { blur: 4, opacity: 0.64 }
 
@@ -48,6 +62,9 @@ const BAND = {
 // Under the limit an Svg's source is held to.
 const SVG_LIMIT = 131072
 
+// A plain midday on this machine's clock: no occasion, nobody asleep.
+const NOON = new Date(2026, 10, 18, 12, 0).getTime()
+
 // The rules every frame keeps, in every mood: on the grid and on the track, no higher
 // than the pom-pom allows, a balloon only on the ground, and no frame leaping across.
 function expectOnTrack(frames: readonly Frame[], width: number, isLoop: boolean) {
@@ -65,6 +82,7 @@ function expectOnTrack(frames: readonly Frame[], width: number, isLoop: boolean)
 test('the session starts with the whole look, and its colors have no problem', async ($, on) => {
   let look: ThemeSetArgs | undefined
 
+  mock.clock(on, { now: NOON })
   mock.store(on)
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   // Each hook here stands for the engine: it records the look and says a client draws it.
@@ -415,6 +433,7 @@ test('the pointer stops the band to wave, and a press makes the character jump w
 })
 
 test('/winter calms the band and the snow, hides the band, and the next session remembers', async ($, on) => {
+  mock.clock(on, { now: NOON })
   mock.store(on)
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('theme.set', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
@@ -454,6 +473,123 @@ test('/winter calms the band and the snow, hides the band, and the next session 
   expect(await sourceOf(band.find({ type: 'Svg' }))).toContain('svg:hover')
   expect(await sourceOf(backdrop.find({ type: 'Svg' }))).not.toContain('/winter calm')
   expect((await winter('loud')).text).toContain('Usage')
+  await band.unmount()
+  await backdrop.unmount()
+})
+
+test('the clock gives the sky, the occasion and how late it is', () => {
+  const at = (year: number, month: number, day: number, hour: number, minute = 0) =>
+    whenOf(new Date(year, month, day, hour, minute).getTime())
+
+  expect(at(2026, 10, 17, 12)).toEqual({ sky: 'day', occasion: 'none', isLate: false })
+  expect(at(2026, 10, 17, 6, 30)).toEqual({ sky: 'dawn', occasion: 'none', isLate: false })
+  expect(at(2026, 10, 17, 18)).toEqual({ sky: 'dusk', occasion: 'none', isLate: false })
+  expect(at(2026, 10, 17, 23)).toEqual({ sky: 'night', occasion: 'none', isLate: false })
+  // New Year's eve, and the small hours of its day.
+  expect(at(2026, 11, 31, 22)).toEqual({ sky: 'night', occasion: 'newyear', isLate: false })
+  expect(at(2027, 0, 1, 2)).toEqual({ sky: 'night', occasion: 'newyear', isLate: true })
+  // 13 Ramadan 1448, by the Umm al-Qura calendar.
+  expect(at(2027, 1, 20, 1, 30)).toEqual({ sky: 'night', occasion: 'ramadan', isLate: true })
+})
+
+test("asleep, it sits in the snow while the z's come and go", () => {
+  const { intro, loop, poster } = sleepingOf()
+
+  // A yawn from home, then down on the snow, eyes shut, for the whole loop.
+  expect(intro[0]).toMatchObject({ x: HOME.x, crouch: false })
+  expect(loop.every(frame => frame.crouch && frame.legs === 'tuck' && frame.eyes === 'shut')).toBe(true)
+  expect(['z1', 'z2', 'z3'].every(z => loop.some(frame => frame.say === z))).toBe(true)
+  expect(poster.say).toBe('z2')
+  expectOnTrack(intro, 220, false)
+  expectOnTrack(loop, 220, true)
+
+  const source = bandOf(320, 'sleep')
+
+  // No chase while it sleeps: no footprints, and the spark rests, unlit.
+  expect(source).not.toContain('class="print"')
+  expect(source).not.toContain('animation:spark-x')
+  expect(source).not.toContain('class="glow"')
+  expect(source.length < SVG_LIMIT).toBe(true)
+})
+
+test('late at night with nothing to do it dozes off, work wakes it, and by day it stays awake', async ($, on) => {
+  const clock = mock.clock(on, { now: new Date(2026, 10, 18, 1, 0).getTime() })
+
+  mock.store(on)
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('theme.set', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const alt = async () => (await band.find({ type: 'Svg' }))?.props.alt
+
+  expect(await alt()).toBe(ALT.idle)
+  await clock.advance(3 * 60_000)
+  expect(await alt()).toBe(ALT.sleep)
+
+  // Work wakes it, and once things are quiet again it dozes off again.
+  await $.turn.start({ text: 'one more thing', turnId: 'late' })
+  expect(await alt()).toBe(ALT.working)
+  await $.turn.complete({ answer: 'done', durationMs: 500, isAborted: false, turnId: 'late', reason: 'answer' })
+  await clock.advance(ENDING_MS.joy + 1000)
+  expect(await alt()).toBe(ALT.idle)
+  await clock.advance(3 * 60_000)
+  expect(await alt()).toBe(ALT.sleep)
+
+  // Morning: five o'clock wakes it, with nothing asked of it.
+  await clock.set(new Date(2026, 10, 18, 5, 1).getTime())
+  expect(await alt()).toBe(ALT.idle)
+  await clock.advance(30 * 60_000)
+  expect(await alt()).toBe(ALT.idle)
+  await band.unmount()
+})
+
+test('it dresses for New Year and for Ramadan, and the sky follows the clock', async ($, on) => {
+  const newYear = bandOf(320, 'idle', { occasion: 'newyear' })
+  const ramadan = bandOf(220, 'working', { occasion: 'ramadan' })
+
+  // A party hat in place of the knitted one, and confetti.
+  expect(newYear).toContain(PARTY_PURPLE)
+  expect(newYear).toContain('class="confetti"')
+  expect(newYear).not.toContain(KNIT_PINK)
+  // A lantern hung over the track.
+  expect(ramadan).toContain(LANTERN_GOLD)
+  expect(ramadan).toContain('class="lantern-lit"')
+  for (const occasion of ['none', 'newyear', 'ramadan'] as const) {
+    for (const mood of ['idle', 'working', 'joy', 'sleep'] as const) {
+      expect(bandOf(320, mood, { occasion }).length < SVG_LIMIT).toBe(true)
+    }
+  }
+
+  // Moon and stars at night, a low sun at dawn and dusk, a plain day; in Ramadan the
+  // crescent, bright at night and faint by day.
+  expect(sceneOf({ sky: 'night' })).toContain('class="star"')
+  expect(sceneOf({ sky: 'night' })).toContain('fill="#f2e6b6"')
+  expect(sceneOf({ sky: 'dawn' })).toContain('fill="url(#dawn)"')
+  expect(sceneOf({ sky: 'dusk' })).toContain('fill="url(#dusk)"')
+  expect(sceneOf({ sky: 'day' })).not.toContain('class="star"')
+  expect(sceneOf({ sky: 'day' })).not.toContain('fill="url(#sun)"')
+  expect(sceneOf({ sky: 'night', occasion: 'ramadan' })).toContain('fill="#e9c96b" fill-opacity="1"')
+  expect(sceneOf({ sky: 'day', occasion: 'ramadan' })).toContain('fill="#e9c96b" fill-opacity="0.5"')
+
+  // Through the hooks, on a Ramadan night.
+  mock.clock(on, { now: new Date(2027, 1, 20, 21, 0).getTime() })
+  mock.store(on)
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('theme.set', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const backdrop = await $.ui.mount({ ...BACKDROP, surface: 'desktop' })
+
+  expect(String((await band.find({ type: 'Svg' }))?.props.source)).toContain(LANTERN_GOLD)
+  expect(String((await backdrop.find({ type: 'Svg' }))?.props.source)).toContain('class="star"')
   await band.unmount()
   await backdrop.unmount()
 })

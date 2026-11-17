@@ -369,6 +369,42 @@ export const FLAKE = {
   bit: [[1, 1, 1, 1]],
 } as const satisfies Record<string, readonly Rect[]>
 
+// For New Year: a paper party hat at a slant on the right of the head, in place of the
+// knitted one, striped gold on purple.
+export const PARTY_PURPLE = '#7b5cd6'
+export const PARTY_GOLD = '#f2c94c'
+export const PARTY_HAT = {
+  cone: [
+    [9, 0, 6, 1],
+    [10, -1, 4, 1],
+    [12, -2, 2, 1],
+  ],
+  stripes: [
+    [11, 0, 1, 1],
+    [13, 0, 1, 1],
+    [12, -1, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+// For New Year too: confetti, in these colors.
+export const CONFETTI: readonly string[] = ['#e5484d', '#f2c94c', '#3e9be0', '#2f9e5b', '#7b5cd6']
+
+// For Ramadan: a lantern hanging over the track, its glass lit and flickering.
+export const LANTERN_GOLD = '#b8862b'
+export const LANTERN_GLOW = '#ffd36b'
+export const LANTERN = {
+  frame: [
+    [2, 0, 1, 1],
+    [1, 1, 3, 1],
+    [0, 2, 5, 1],
+    [0, 3, 1, 2],
+    [4, 3, 1, 2],
+    [0, 5, 5, 1],
+    [1, 6, 3, 1],
+  ],
+  glass: [[1, 3, 3, 2]],
+} as const satisfies Record<string, readonly Rect[]>
+
 // What it says, in pixels over its head: rows of '#', all of one width.
 export const SAY = {
   alert: ['##', '##', '##', '..', '##'],
@@ -380,6 +416,10 @@ export const SAY = {
   think3: ['#.#.#'],
   // The work is done.
   done: ['.....#', '....#.', '#..#..', '.##...'],
+  // Asleep: a small z, then a big Z above it, then the big one alone.
+  z1: ['........', '........', '........', '###.....', '.#......', '###.....'],
+  z2: ['....####', '......#.', '.....#..', '###.####', '.#......', '###.....'],
+  z3: ['....####', '......#.', '.....#..', '....####', '........', '........'],
 } as const satisfies Record<string, readonly string[]>
 
 export function pathOf(rects: readonly Rect[]): string {
