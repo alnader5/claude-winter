@@ -1,0 +1,8 @@
+{
+  "name": "claude-winter",
+  "owner": { "name": "alnader5" },
+  "metadata": {
+    "description": "Winter, a Claude Code mod: winter colors, a slow snowfall, and Claude's pixel character above the prompt."
+  },
+  "plugins": [{ "name": "winter", "source": "./" }]
+}
