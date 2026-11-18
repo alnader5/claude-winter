@@ -52,6 +52,7 @@ import {
 } from '../hooks/sprite'
 import { cheerOf } from '../hooks/git'
 import { GIFTS_AT, builtOn, dayOf, snowmanOf, type Build } from '../hooks/snowman'
+import { PLAYERS, fileOf, systemOf } from '../hooks/sound'
 import { whenOf } from '../hooks/time'
 import { toneOf } from '../hooks/tone'
 import {
@@ -715,9 +716,37 @@ test('/winter focus sits the character still while the spark goes out, and rings
   await ui.unmount()
 })
 
-test('/winter sound turns the sounds on: a chime for an answer, a bell for a focus done, a pop for git', async ($, on) => {
+test('each system plays the sounds with a player of its own', () => {
+  // Which system: a Windows path, or the kernel's name.
+  expect(systemOf('C:\\Users\\me\\.claude\\plugins\\winter', undefined)).toBe('windows')
+  expect(systemOf('/Users/me/.claude/plugins/winter', 'Darwin\n')).toBe('mac')
+  expect(systemOf('/home/me/.claude/plugins/winter', 'Linux\n')).toBe('linux')
+  expect(systemOf('/home/me/.claude/plugins/winter', undefined)).toBe('linux')
+
+  // The sound beside the plugin's own folder, in the path's own style.
+  expect(fileOf('/home/me/winter', 'chime')).toBe('/home/me/winter/sounds/chime.wav')
+  expect(fileOf('/home/me/winter/.claude-plugin/', 'bell')).toBe('/home/me/winter/sounds/bell.wav')
+  expect(fileOf('C:\\Users\\me\\winter', 'pop')).toBe('C:\\Users\\me\\winter\\sounds\\pop.wav')
+
+  // afplay on macOS; .NET's SoundPlayer through PowerShell on Windows, a quote in the
+  // path doubled; on Linux PipeWire's player first, then PulseAudio's and ALSA's.
+  expect(PLAYERS.mac[0]?.argv('/a b/chime.wav')).toEqual(['afplay', '-v', '0.8', '/a b/chime.wav'])
+  expect(PLAYERS.windows[0]?.argv("C:\\O'Neil\\pop.wav")).toEqual([
+    'powershell.exe',
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    "(New-Object System.Media.SoundPlayer 'C:\\O''Neil\\pop.wav').PlaySync()",
+  ])
+  expect(PLAYERS.linux.map(player => player.name).slice(0, 3)).toEqual(['pw-play', 'paplay', 'aplay'])
+  expect(PLAYERS.linux[0]?.argv('/x.wav')).toEqual(['pw-play', '--volume', '0.8', '/x.wav'])
+})
+
+test('/winter sound plays a chime for an answer, a bell for a focus done and a pop for git, with the player that runs', async ($, on) => {
   const clock = mock.clock(on, { now: NOON })
-  const played: string[] = []
+  const ran: string[][] = []
+  const cannot = new Set(['pw-play'])
+  const engine: string[] = []
 
   mock.store(on)
   on('command.register', (_, e) => ({ value: { command: e.name } }))
@@ -728,9 +757,21 @@ test('/winter sound turns the sounds on: a chime for an answer, a bell for a foc
   on('tool.call', () => ({ result: 'done' }))
   on('ui.toast', () => ({ value: undefined }))
   on('audio.play', (_, e) => {
-    played.push(e.clip.asset ?? '')
+    engine.push(e.clip.asset ?? '')
 
     return { value: undefined }
+  })
+  // This machine: Linux, where pw-play cannot start and paplay plays.
+  on('process.run', (_, e) => {
+    const [command = ''] = e.argv
+    const done = { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false }
+
+    if (command === 'uname') {
+      return { value: { ...done, stdout: 'Linux\n' } }
+    }
+    ran.push([...e.argv])
+
+    return cannot.has(command) ? { deny: `${command}: not found` } : { value: done }
   })
 
   const winter = (args: string) =>
@@ -743,38 +784,57 @@ test('/winter sound turns the sounds on: a chime for an answer, a bell for a foc
   const answer = async (turnId: string) => {
     await $.turn.start({ text: 'go', turnId })
     await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId, reason: 'answer' })
+    await clock.settle()
   }
+  const players = () => ran.map(([command]) => command)
+  const files = () => ran.map(argv => argv[argv.length - 1] ?? '')
 
   // Off until asked for.
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await answer('quiet')
-  expect(played).toEqual([])
+  expect(ran).toEqual([])
   expect((await winter('')).text).toContain('sounds off')
 
-  // On: a chime to say so, then one for each answer; a bell as a focus session ends; a
-  // pop for a commit.
-  expect((await winter('sound on')).text).toContain('no player')
-  expect(played).toEqual(['sounds/chime.wav'])
+  // On: a chime to say so, played by the first player that runs, which is kept.
+  expect((await winter('sound on')).text).toContain('played with paplay')
+  expect(players()).toEqual(['pw-play', 'paplay'])
+  expect(files()[1]).toMatch(/[\\/]sounds[\\/]chime\.wav$/)
   await answer('loud')
-  expect(played.at(-1)).toBe('sounds/chime.wav')
+  expect(players().slice(2)).toEqual(['paplay'])
+  expect(files().at(-1)).toMatch(/chime\.wav$/)
+
+  // A bell as a focus session ends; a pop for a commit.
   await winter('focus 1')
   await clock.advance(60_000)
-  expect(played.at(-1)).toBe('sounds/bell.wav')
+  await clock.settle()
+  expect(files().at(-1)).toMatch(/bell\.wav$/)
   await clock.advance(6000)
   await $.turn.start({ text: 'commit it', turnId: 'git' })
   await clock.advance(openingMsOf('plain'))
   await $.tool.call({ tool: 'Bash', command: 'git commit -m x', tool_use_id: 'c1' })
-  expect(played.at(-1)).toBe('sounds/pop.wav')
+  await clock.settle()
+  expect(files().at(-1)).toMatch(/pop\.wav$/)
+  expect(engine).toEqual([])
 
   // Kept for the next session; off again, and quiet.
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   expect((await winter('')).text).toContain('sounds on')
   expect((await winter('sound off')).text).toContain('sounds off')
-  const count = played.length
+
+  const count = ran.length
 
   await answer('quiet again')
-  expect(played.length).toBe(count)
+  expect(ran.length).toBe(count)
   expect((await winter('sound loud')).text).toContain('Usage')
+
+  // A machine where no player starts: the engine's own play is the last try, and the
+  // answer says what would play them.
+  for (const player of ['paplay', 'aplay', 'ffplay', 'mpv', 'play', 'canberra-gtk-play']) {
+    cannot.add(player)
+  }
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect((await winter('sound on')).text).toContain('no sound player answered')
+  expect(engine).toEqual(['sounds/chime.wav'])
 })
 
 test('left alone a while, the band has a visitor, and the night sky its own', () => {

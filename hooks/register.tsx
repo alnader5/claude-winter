@@ -11,6 +11,8 @@ import { bothOf, cheerOf } from './git'
 import type { Cheer } from './git'
 import { sameWhen, whenOf } from './time'
 import { FRESH_BUILD, builtOn, dayOf, isBuild, snowmanOf } from './snowman'
+import { forgetPlayer, playSound } from './sound'
+import type { Sound } from './sound'
 import { toneOf } from './tone'
 import { FRESH_WORK, MAX_HELPERS, activityOf, driftOf, heatOf, trekOf, workAltOf } from './work'
 
@@ -139,19 +141,18 @@ const USAGE =
   'Usage: /winter on | calm | off | focus [minutes] | focus stop | sound on | sound off · ' +
   'الاستخدام: /winter on | calm | off | focus [دقائق] | focus stop | sound on | sound off'
 
-// What /winter sound says back. Claude Code plays a mod's sounds with the system's own
-// player, which only macOS has.
-const SOUND_SAID: Readonly<Record<'on' | 'off', string>> = {
-  on:
-    'Winter: sounds on: a chime when Claude answers, a bell when a focus session ends, a pop for a commit or a push. ' +
-    'Claude Code plays them on macOS; on Linux and Windows it has no player, so they stay silent there. · ' +
-    'الشتاء: الأصوات مفعّلة: رنّة حين يجيب Claude، وجرس عند نهاية جلسة التركيز، ونقرة لكل commit أو push. ' +
-    'يشغّلها Claude Code على macOS، أما على Linux وWindows فلا مشغّل لديه فتبقى صامتة.',
-  off: 'Winter: sounds off. · الشتاء: الأصوات متوقفة.',
-}
-
-// How loud the sounds play, of the clip's own loudness.
-const SOUND_GAIN = 0.8
+// What /winter sound says back: which player played the chime that says so, or, with
+// none to play it, what would.
+const soundOn = (player: string) =>
+  player === 'none'
+    ? 'Winter: sounds on, but no sound player answered on this machine. On Linux, PipeWire (pw-play), ' +
+      'PulseAudio (paplay) or ALSA (aplay) plays them. · الشتاء: الأصوات مفعّلة، لكن لم يستجب أي مشغّل صوت ' +
+      'على هذا الجهاز. على Linux يشغّلها PipeWire ‏(pw-play) أو PulseAudio ‏(paplay) أو ALSA ‏(aplay).'
+    : `Winter: sounds on, played with ${player}: a chime when Claude answers, a bell when a focus session ends, ` +
+      `a pop for a commit or a push. · الشتاء: الأصوات مفعّلة عبر ${player}: رنّة حين يجيب Claude، ` +
+      'وجرس عند نهاية جلسة التركيز، ونقرة لكل commit أو push.'
+const SOUNDS_ON = 'Winter: sounds on. · الشتاء: الأصوات مفعّلة.'
+const SOUNDS_OFF = 'Winter: sounds off. · الشتاء: الأصوات متوقفة.'
 
 // A focus session's length when none is given, and the longest one.
 const FOCUS_MINUTES = 25
@@ -189,11 +190,11 @@ let ticker: Timer | undefined
 // Whether the sounds are on, as /winter sound last left it; off until it is asked for.
 let isSounding = false
 
-// A sound of the mod's, if the sounds are on: `chime`, `bell` or `pop`. Nothing waits on
-// it, and a machine with no player plays nothing.
-function play($: EngineInterface, sound: 'chime' | 'bell' | 'pop'): void {
+// A sound of the mod's, if the sounds are on: `chime`, `bell` or `pop`, played by the
+// first of the system's players that runs. Nothing waits on it.
+function play($: EngineInterface, sound: Sound): void {
   if (isSounding) {
-    $.audio.play({ asset: `sounds/${sound}.wav` }, { gain: SOUND_GAIN }).catch(() => undefined)
+    void playSound($, sound)
   }
 }
 
@@ -465,6 +466,7 @@ export const register: Register = on => {
 
     await update($, motion, () => (isMotion(kept) ? kept : 'on'))
     isSounding = (await $.store.get('sound')) === true
+    forgetPlayer()
 
     // The snowman as far as it is built, a part on to it on a new day.
     await build($, false)
@@ -502,7 +504,7 @@ export const register: Register = on => {
           ? ''
           : `\n${focusLeft(Math.max(1, Math.ceil((session.endsAt - (await $.clock.now())) / 60_000)))}`
 
-      return { text: `${SAID[await read($, motion)]}${left}\n${SOUND_SAID[isSounding ? 'on' : 'off']}\n${USAGE}` }
+      return { text: `${SAID[await read($, motion)]}${left}\n${isSounding ? SOUNDS_ON : SOUNDS_OFF}\n${USAGE}` }
     }
     if (words[0] === 'sound') {
       const [, what] = words
@@ -512,9 +514,9 @@ export const register: Register = on => {
       }
       isSounding = what === 'on'
       await $.store.set('sound', isSounding)
-      play($, 'chime')
 
-      return { text: SOUND_SAID[what] }
+      // A chime to say so, and which player played it.
+      return { text: isSounding ? soundOn(await playSound($, 'chime')) : SOUNDS_OFF }
     }
     if (words[0] === 'focus') {
       const what = focusAsked(words)
