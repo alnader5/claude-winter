@@ -17,10 +17,12 @@ import {
   endingOf,
   helperAt,
   isOnIce,
+  trekAt,
   openingMsOf,
   pixelsOf,
   printsOf,
   reelOf,
+  shovelingOf,
   sleepingOf,
   storyOf,
   trailOf,
@@ -32,20 +34,36 @@ import { sceneOf } from '../hooks/scene'
 import {
   BLUSH_PINK,
   CARROT,
+  COAL,
   KNIT_PINK,
   KNIT_RED,
   LANTERN_GOLD,
   LID_GRAY,
+  PARTY_GOLD,
   PARTY_PURPLE,
   SPRITE_WIDTH,
   STRIPE,
   SWEAT_BLUE,
   TICK,
+  TREK_FLAG,
   UNIT,
+  pathOf,
 } from '../hooks/sprite'
+import { cheerOf } from '../hooks/git'
+import { GIFTS_AT, builtOn, dayOf, snowmanOf, type Build } from '../hooks/snowman'
 import { whenOf } from '../hooks/time'
 import { toneOf } from '../hooks/tone'
-import { MAX_HELPERS, WORK_ALT, activityOf, heatOf, type Activity, type Tone } from '../hooks/work'
+import {
+  MAX_HELPERS,
+  MAX_TREK,
+  WORK_ALT,
+  activityOf,
+  driftOf,
+  heatOf,
+  trekOf,
+  type Activity,
+  type Tone,
+} from '../hooks/work'
 
 const GLASS = { blur: 4, opacity: 0.64 }
 
@@ -175,10 +193,11 @@ test("Claude's pixel character and the spark share a band as wide as its slot", 
     expect(source).toContain("@property --of{syntax:'&lt;number&gt;';inherits:false;initial-value:0}")
     // The style is plain text in the markup, so a scrub or an XML parser reads it whole.
     expect(source.slice(source.indexOf('<style>') + 7, source.indexOf('</style>'))).not.toMatch(/[<>]/)
-    // Dressed for the cold, beside a snowman.
+    // Dressed for the cold, beside a snowman begun: on a first day, a snowball.
     expect(source).toContain(KNIT_RED)
     expect(source).toContain(STRIPE)
-    expect(source).toContain(CARROT)
+    expect(source).toContain('<g class="px snowman">')
+    expect(source).not.toContain(CARROT)
     // Nothing of the work is drawn in the chase: no laptop, no glow.
     expect(source).not.toContain(LID_GRAY)
     expect(source).not.toContain('class="glow"')
@@ -800,7 +819,7 @@ test('each kind of tool has an act of its own, with its own prop', () => {
       expect(loop.every(frame => isAt(frame.x, HOME.x) && frame.hop === 0)).toBe(true)
       expectOnTrack(intro, false)
       expectOnTrack(loop, true)
-      expect(bandOf('working', { work: { activity, opening, helpers: 3, tone: 'urgent', heat: 0 } }).length < SVG_LIMIT).toBe(true)
+      expect(bandOf('working', { work: { activity, opening, helpers: 3, tone: 'urgent', heat: 0, trek: 0 } }).length < SVG_LIMIT).toBe(true)
     }
   }
 
@@ -827,10 +846,10 @@ test('each kind of tool has an act of its own, with its own prop', () => {
   expect(loopOf('think').every(frame => frame.laptop === 'open')).toBe(true)
 
   // The spark whirls fastest as code flies to it, and holds still while a question waits.
-  expect(bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0, tone: 'plain', heat: 0 } })).toContain(
+  expect(bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0, tone: 'plain', heat: 0, trek: 0 } })).toContain(
     'animation:spark-whirl 1.6s linear infinite',
   )
-  expect(bandOf('working', { work: { activity: 'wait', opening: 'switch', helpers: 0, tone: 'plain', heat: 0 } })).not.toContain(
+  expect(bandOf('working', { work: { activity: 'wait', opening: 'switch', helpers: 0, tone: 'plain', heat: 0, trek: 0 } })).not.toContain(
     'spark-whirl',
   )
 
@@ -1044,7 +1063,7 @@ test('a prompt comes up as a paper plane, and the character meets it by how it s
   expect((opened.plain ?? 0) < (opened.thanks ?? 0)).toBe(true)
 
   // In a hurry the band runs faster, and the spark whirls faster too.
-  const hurried = bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0, tone: 'urgent', heat: 0 } })
+  const hurried = bandOf('working', { work: { activity: 'edit', opening: 'switch', helpers: 0, tone: 'urgent', heat: 0, trek: 0 } })
   const { loop } = workingOf({ activity: 'edit', opening: 'switch', tone: 'urgent' })
 
   expect(hurried).toContain(`,${Number((loop.length / 12 / 1.5).toFixed(3))}s;`)
@@ -1106,7 +1125,7 @@ test('the longer and harder a turn works, the hotter the spark, and a hard answe
   expect(heatOf(0, 40)).toBe(3)
 
   const hot = (heat: 0 | 1 | 2 | 3) =>
-    bandOf('working', { work: { activity: 'edit', opening: 'stay', helpers: 0, tone: 'plain', heat } })
+    bandOf('working', { work: { activity: 'edit', opening: 'stay', helpers: 0, tone: 'plain', heat, trek: 0 } })
 
   // Faster, brighter, bigger; embers at the top two heats.
   expect(hot(0)).toContain('animation:spark-whirl 1.6s linear infinite')
@@ -1161,6 +1180,284 @@ test('a long turn heats the spark up, and its answer sends up fireworks', async 
   await $.turn.complete({ answer: 'done', durationMs: 3000, isAborted: false, turnId: 'quick', reason: 'answer' })
   expect(String((await after.find({ type: 'Svg' }))?.props.source)).not.toContain('class="rocket"')
   await after.unmount()
+})
+
+test('git commits and pushes are told apart from everything else a shell runs', () => {
+  expect(cheerOf('git commit -m "fix the band"')).toBe('commit')
+  expect(cheerOf('git commit -n -m "skip the hooks"')).toBe('commit')
+  expect(cheerOf('GIT_AUTHOR_NAME=me git commit -m x')).toBe('commit')
+  expect(cheerOf('git -C /repo push origin main')).toBe('push')
+  expect(cheerOf('git status; git push')).toBe('push')
+  expect(cheerOf("git add -A && git commit -q -F - <<'EOF'\nThe band\nEOF\ngit push -q origin main")).toBe('ship')
+  expect(cheerOf('git push --dry-run')).toBeUndefined()
+  expect(cheerOf('git push -n origin main')).toBeUndefined()
+  expect(cheerOf('git log --grep commit')).toBeUndefined()
+  expect(cheerOf('echo "git commit"')).toBeUndefined()
+  expect(cheerOf('npm test')).toBeUndefined()
+
+  // A flag waved high for a commit; a snowball thrown up out of the band for a push,
+  // and a star where it went; one after the other for both. Then the prop comes back.
+  const commit = workingOf({ activity: 'run', opening: 'commit', tone: 'plain' }).intro
+  const push = workingOf({ activity: 'run', opening: 'push', tone: 'plain' }).intro
+  const ship = workingOf({ activity: 'run', opening: 'ship', tone: 'plain' }).intro
+
+  expect(commit.filter(frame => frame.gitFlag !== 'none').every(frame => frame.arms === 'up')).toBe(true)
+  expect(new Set(commit.map(frame => frame.gitFlag))).toEqual(new Set(['none', 'wave1', 'wave2']))
+  expect(push.some(frame => (frame.snowball?.y ?? 99) + 2 * UNIT < 0)).toBe(true)
+  expect(push.some(frame => frame.twinkle === 'big')).toBe(true)
+  // Both share one puff (two frames) and one terminal coming out (two frames).
+  expect(ship.length).toBe(commit.length + push.length - 4)
+  expect(commit[commit.length - 1]?.box).toBe('up')
+
+  for (const intro of [commit, push, ship]) {
+    expectOnTrack(intro, false)
+  }
+})
+
+test('the band cheers a commit and a push that went through, and not one that failed', async ($, on) => {
+  const clock = mock.clock(on, { now: NOON })
+  const answers: ({ result: string; isError: true } | { result: string })[] = []
+
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('tool.call', () => answers.shift() ?? { result: 'done' })
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface: 'desktop' })
+  const source = async () => String((await ui.find({ type: 'Svg' }))?.props.source)
+
+  await $.turn.start({ text: 'ship it', turnId: 'git' })
+  await clock.advance(openingMsOf('plain'))
+
+  // Nothing to commit: no flag.
+  answers.push({ result: 'nothing to commit, working tree clean', isError: true })
+  await $.tool.call({ tool: 'Bash', command: 'git commit -m x', tool_use_id: 'c0' })
+  await clock.advance(1500)
+  expect(await source()).not.toContain('git-flag-wave1')
+
+  // A commit: the flag.
+  await $.tool.call({ tool: 'Bash', command: 'git commit -m x', tool_use_id: 'c1' })
+  await clock.advance(1500)
+  expect(await source()).toContain('git-flag-wave1')
+
+  // An agent's push: the snowball.
+  await $.tool.call({ tool: 'Bash', command: 'git push origin main', tool_use_id: 'p1', agentId: 'shipper' })
+  await clock.advance(1500)
+  expect(await source()).toContain('class="m ball-at px"')
+  await ui.unmount()
+})
+
+test('a long turn plants a flag a minute along the snow, and a long answer the big one', () => {
+  expect([0, 59_999, 60_000, 150_000, 600_000, 900_000].map(trekOf)).toEqual([0, 0, 1, 2, 10, 10])
+
+  // Evenly from just past the spark to near the far end, on the stage at any width.
+  for (const width of WIDTHS) {
+    const xs = Array.from({ length: MAX_TREK }, (_, index) => pixelsOf(trekAt(index + 1), width))
+
+    expect(xs[0]).toBe(76)
+    expect(xs[MAX_TREK - 1]).toBe(width - 48)
+    expect(xs.every((x, index) => index === 0 || x >= (xs[index - 1] ?? 0))).toBe(true)
+  }
+
+  const pennant = `d="${pathOf(TREK_FLAG.flag)}"`
+  const flagsIn = (band: string) => band.split(pennant).length - 1
+  const working = (opening: 'stay' | 'switch', trek: number) =>
+    bandOf('working', { work: { activity: 'think', opening, helpers: 0, tone: 'plain', heat: 0, trek } })
+
+  // Three minutes, three flags; the newest springs up as the band goes on with the same
+  // work, and stands still when the work switches.
+  expect(flagsIn(working('stay', 3))).toBe(3)
+  expect(working('stay', 3).match(/class="plant"/g)?.length).toBe(1)
+  expect(working('switch', 3)).not.toContain('class="plant"')
+  expect(flagsIn(working('stay', 0))).toBe(0)
+
+  // A long turn answered: the big flag where the last stood, flying. Not for a short
+  // one, nor for one that ended any other way.
+  const summit = bandOf('joy', { trek: 3 })
+
+  expect(flagsIn(summit)).toBe(2)
+  expect(summit).toContain('class="fly1"')
+  expect(summit).toContain('.flags .plant{animation-delay:0.6s}')
+  expect(bandOf('joy', { trek: 1 })).not.toContain('class="fly1"')
+  expect(flagsIn(bandOf('puzzled', { trek: 3 }))).toBe(3)
+  expect(bandOf('puzzled', { trek: 3 })).not.toContain('class="fly1"')
+  expect(flagsIn(bandOf('idle', { trek: 3 }))).toBe(0)
+})
+
+test('the flags come up a minute at a time while Claude works, and the big one as it answers', async ($, on) => {
+  const clock = mock.clock(on, { now: NOON })
+
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const source = async () => String((await ui.find({ type: 'Svg' }))?.props.source)
+  const pennant = `d="${pathOf(TREK_FLAG.flag)}"`
+
+  await $.turn.start({ text: 'migrate the database', turnId: 'trek' })
+  expect((await source()).split(pennant).length - 1).toBe(0)
+  await clock.advance(60_000)
+  expect((await source()).split(pennant).length - 1).toBe(1)
+  await clock.advance(90_000)
+  expect((await source()).split(pennant).length - 1).toBe(2)
+  await $.turn.complete({ answer: 'done', durationMs: 150_000, isAborted: false, turnId: 'trek', reason: 'answer' })
+  expect(await source()).toContain('class="fly1"')
+  await ui.unmount()
+})
+
+test('snow drifts up along the band as the context fills, clear of the ice', () => {
+  expect([undefined, 0, 29, 30, 49, 50, 70, 84, 85, 100].map(driftOf)).toEqual([0, 0, 0, 1, 1, 2, 3, 3, 4, 4])
+
+  const drifts = (band: string) => band.split('fill="#cfdbe8"').length - 1
+
+  // Five mounds, a step deeper at each level; none at all while there is room.
+  expect(bandOf('idle', { drift: 0 })).not.toContain('class="drift')
+  expect(drifts(bandOf('idle', { drift: 1 }))).toBe(5)
+  expect(drifts(bandOf('idle', { drift: 4 }))).toBe(20)
+  expect(drifts(bandOf('working', { drift: 2 }))).toBe(10)
+
+  // Every step of it stands on the ground, no higher than the level, and off the ice.
+  const deep = bandOf('idle', { drift: 4 })
+  const steps = [...deep.matchAll(/<rect x="([\d.]+)%" y="(\d+)" width="([\d.]+)%" height="(\d+)" fill="#cfdbe8"/g)]
+
+  expect(steps.length).toBe(20)
+
+  for (const [, x, y, width] of steps) {
+    const from = Number(x) / 100
+    const to = from + Number(width) / 100
+
+    expect(Number(y) >= BAND_HEIGHT - UNIT - 4 * UNIT * 2).toBe(true)
+    expect(to <= TRACK.iceStart.of || from >= TRACK.iceEnd.of).toBe(true)
+  }
+
+  // Shoveled: dug in, heaved over the shoulder, flung; the drifts sinking meanwhile.
+  const { intro, loop } = shovelingOf()
+
+  expect(loop.some(frame => frame.shovel === 'dig' && frame.crouch)).toBe(true)
+  expect(loop.some(frame => frame.shovel === 'heave' && !frame.flung)).toBe(true)
+  expect(loop.some(frame => frame.flung)).toBe(true)
+  expectOnTrack(intro, false)
+  expectOnTrack(loop, true)
+  expect(bandOf('shovel', { drift: 3 })).toContain('animation:drift-down 6s ease-in forwards')
+  expect(bandOf('idle', { drift: 3 })).not.toContain('drift-down')
+})
+
+// What a conversation compacts to, and what it compacts from, in the tests.
+const SUMMARY = { role: 'user' as const, text: 'The summary so far.', toolUses: [] }
+const TALK = [
+  { role: 'user' as const, text: 'Make it snow.', toolUses: [] },
+  { role: 'assistant' as const, text: 'It snows.', toolUses: [] },
+]
+
+test('the drifts follow the context, and the character shovels them away as it is compacted', async ($, on) => {
+  // What the band says while the engine compacts, beneath the mod's own hook.
+  let during: unknown
+
+  mock.clock(on, { now: NOON })
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('session.compact', async () => {
+    during = (await svg())?.alt
+
+    return { messages: [SUMMARY] }
+  })
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const svg = async () => (await ui.find({ type: 'Svg' }))?.props
+  const measure = (percent: number) =>
+    $.session.measure({ context: { tokens: percent * 2000, window: 200_000, percent }, rateLimits: [], changed: ['context'] })
+
+  await measure(20)
+  expect(String((await svg())?.source)).not.toContain('class="drift')
+  await measure(72)
+  expect(String((await svg())?.source)).toContain('class="drift')
+  expect((await svg())?.alt).toBe(`${ALT.idle}; the snow drifts deep as the context fills`)
+
+  // While it is compacted the character shovels; done, the drifts are gone.
+  await $.session.compact({ trigger: 'manual', messages: TALK })
+  expect(during).toBe(ALT.shovel)
+  expect((await svg())?.alt).toBe(ALT.idle)
+  expect(String((await svg())?.source)).not.toContain('class="drift')
+
+  // A subagent's compaction, or one only worked out ahead of time, is none of the band's.
+  await measure(90)
+  await $.session.compact({ trigger: 'auto', agentId: 'helper', messages: TALK })
+  expect(during).toBe(`${ALT.idle}; the snow drifts deep as the context fills`)
+  await $.session.compact({ trigger: 'precompute', messages: TALK })
+  expect(during).toBe(`${ALT.idle}; the snow drifts deep as the context fills`)
+  expect(String((await svg())?.source)).toContain('class="drift')
+  await ui.unmount()
+})
+
+test('the snowman is built a part a day, and earns a gift at each step of answers', () => {
+  const look = (band: string) => band.slice(band.indexOf('<g class="px snowman">'), band.indexOf('</g>', band.indexOf('<g class="px snowman">')) + 4)
+  const day1 = look(bandOf('idle', { snowman: { stage: 1, gifts: 0 } }))
+  const day4 = look(bandOf('idle', { snowman: { stage: 4, gifts: 0 } }))
+  const whole = look(bandOf('idle'))
+  const dressed = look(bandOf('idle', { snowman: { stage: 6, gifts: 3 } }))
+
+  // A snowball, then a head, a face, a carrot, arms that wave back, a hat.
+  expect(day1).not.toContain(COAL)
+  expect(day1).not.toContain(CARROT)
+  expect(day4).toContain(CARROT)
+  expect(day4).not.toContain('class="m pal-')
+  expect(whole).toContain('class="m pal-')
+  expect(whole.split(`fill="${COAL}"`).length - 1).toBe(2)
+  // A scarf, a broom, a star.
+  expect(whole).not.toContain(KNIT_RED)
+  expect(dressed).toContain(KNIT_RED)
+  expect(dressed).toContain(PARTY_GOLD)
+  expect(look(bandOf('idle', { snowman: { stage: 3, gifts: 3 } }))).not.toContain(PARTY_GOLD)
+
+  // A part a day, counted once a day however many sessions; an answer at a time.
+  const fresh: Build = { days: 0, lastDay: '', answers: 0 }
+  const first = builtOn(fresh, '2026-11-18', false)
+  const again = builtOn(first, '2026-11-18', true)
+  const next = builtOn(again, '2026-11-19', false)
+
+  expect(first).toEqual({ days: 1, lastDay: '2026-11-18', answers: 0 })
+  expect(again).toEqual({ days: 1, lastDay: '2026-11-18', answers: 1 })
+  expect(next).toEqual({ days: 2, lastDay: '2026-11-19', answers: 1 })
+  expect(snowmanOf({ days: 40, lastDay: '', answers: 0 })).toEqual({ stage: 6, gifts: 0 })
+  expect(GIFTS_AT.map(answers => snowmanOf({ days: 6, lastDay: '', answers }).gifts)).toEqual([1, 2, 3])
+  expect(snowmanOf({ days: 6, lastDay: '', answers: (GIFTS_AT[0] ?? 0) - 1 }).gifts).toBe(0)
+  expect(dayOf(NOON)).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+})
+
+test('the snowman grows a day at a time across sessions, and its gifts come with the answers', async ($, on) => {
+  // Five minutes to midnight, with a snowman two days built and an answer short of a gift.
+  const clock = mock.clock(on, { now: NOON + 12 * 3_600_000 - 5 * 60_000 })
+
+  mock.store(on, { snowman: { days: 2, lastDay: '2026-01-01', answers: (GIFTS_AT[0] ?? 20) - 1 } })
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('theme.set', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const snowman = async () => {
+    const band = String((await ui.find({ type: 'Svg' }))?.props.source)
+    const from = band.indexOf('<g class="px snowman">')
+
+    return band.slice(from, band.indexOf('</g>', from) + 4)
+  }
+
+  // A new day: its face. Another session the same day adds nothing.
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(await snowman()).toContain(COAL)
+  expect(await snowman()).not.toContain(CARROT)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(await snowman()).not.toContain(CARROT)
+
+  // One more answer: the scarf.
+  expect(await snowman()).not.toContain(KNIT_RED)
+  await $.turn.start({ text: 'one more', turnId: 'gift' })
+  await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId: 'gift', reason: 'answer' })
+  expect(await snowman()).toContain(KNIT_RED)
+
+  // Past midnight in the same session: the carrot.
+  await clock.advance(10 * 60_000)
+  expect(await snowman()).toContain(CARROT)
+  await ui.unmount()
 })
 
 test('the eyes follow the pointer to either side of the character', () => {

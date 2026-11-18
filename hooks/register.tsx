@@ -1,15 +1,18 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeSetArgs, Timer, TurnCompleteReason } from 'claude-code'
 
-import type { Activity, Focus, Motion, Occasion, Sky, Tone, Work } from '../types'
+import type { Activity, Beat, Drift, Focus, Motion, Occasion, Snowman, Sky, Tone, Work } from '../types'
 import { ALT, BAND_HEIGHT, ENDING_MS, MAX_WIDTH, bandOf, openingMsOf } from './band'
 import type { Ending, Mood } from './band'
 import { makeColors } from './make-colors.js'
 import { WINTER } from './palette'
 import { SCENE_ALT, SCENE_NAME, sceneOf } from './scene'
+import { bothOf, cheerOf } from './git'
+import type { Cheer } from './git'
 import { sameWhen, whenOf } from './time'
+import { FRESH_BUILD, builtOn, dayOf, isBuild, snowmanOf } from './snowman'
 import { toneOf } from './tone'
-import { FRESH_WORK, MAX_HELPERS, activityOf, heatOf, workAltOf } from './work'
+import { FRESH_WORK, MAX_HELPERS, activityOf, driftOf, heatOf, trekOf, workAltOf } from './work'
 
 const { theme, problems } = makeColors(WINTER)
 
@@ -35,22 +38,40 @@ function drawn(key: string, draw: () => string): string {
 }
 
 // The band at work is drawn for the work as well: what Claude is busy with, how the
-// band opens, how many helpers are out, how the prompt sounded and how hard the turn
-// works. A joy is drawn with fireworks or without.
-const bandFor = (mood: Mood, calm: boolean, occasion: Occasion, work: Work, grand: boolean) => {
+// band opens, how many helpers are out, how the prompt sounded, how hard the turn works
+// and how long it has run. An ending is drawn for how hard and long its turn was:
+// fireworks for a hard one answered, flags for a long one.
+const bandFor = (
+  mood: Mood,
+  calm: boolean,
+  occasion: Occasion,
+  work: Work,
+  ended: Beat | null,
+  drift: Drift,
+  snowman: Snowman,
+) => {
   const at = mood === 'working' ? work : FRESH_WORK
-  const isGrand = mood === 'joy' && grand
+  const isEnding = mood === 'joy' || mood === 'puzzled' || mood === 'closing'
+  const grand = mood === 'joy' && (ended?.heat ?? 0) >= 2
+  const trek = isEnding ? (ended?.trek ?? 0) : 0
 
   return drawn(
-    `band:${mood}:${calm}:${occasion}:${at.activity}:${at.opening}:${at.helpers}:${at.tone}:${at.heat}:${isGrand}`,
-    () => bandOf(mood, { calm, occasion, work: at, grand: isGrand }),
+    `band:${mood}:${calm}:${occasion}:${at.activity}:${at.opening}:${at.helpers}:${at.tone}:${at.heat}:${at.trek}:${grand}:${trek}:${drift}:${snowman.stage}:${snowman.gifts}`,
+    () => bandOf(mood, { calm, occasion, work: at, grand, trek, drift, snowman }),
   )
 }
 
 // The focus band is drawn for how far into the session it comes on, so its rays show
 // the time left; only the latest such drawing is kept.
-function focusBandFor(calm: boolean, occasion: Occasion, focus: Focus, at: number): string {
-  const key = `focus:${calm}:${occasion}:${focus.startedAt}:${focus.endsAt}:${at}`
+function focusBandFor(
+  calm: boolean,
+  occasion: Occasion,
+  focus: Focus,
+  at: number,
+  drift: Drift,
+  snowman: Snowman,
+): string {
+  const key = `focus:${calm}:${occasion}:${focus.startedAt}:${focus.endsAt}:${at}:${drift}:${snowman.stage}:${snowman.gifts}`
 
   for (const old of drawings.keys()) {
     if (old.startsWith('focus:') && old !== key) {
@@ -62,6 +83,8 @@ function focusBandFor(calm: boolean, occasion: Occasion, focus: Focus, at: numbe
     bandOf('focus', {
       calm,
       occasion,
+      drift,
+      snowman,
       focus: { totalMs: focus.endsAt - focus.startedAt, elapsedMs: Math.max(0, at - focus.startedAt) },
     }),
   )
@@ -87,6 +110,14 @@ const work = atom({ plugin: 'winter', key: 'work' } as const, FRESH_WORK)
 
 // The focus session under way, if any.
 const focus = atom({ plugin: 'winter', key: 'focus' } as const, null)
+
+// How deep the snow has drifted, by how full the context is; and whether the
+// conversation is being compacted, the snow shoveled away.
+const drift = atom({ plugin: 'winter', key: 'drift' } as const, 0)
+const isShoveling = atom({ plugin: 'winter', key: 'isShoveling' } as const, false)
+
+// The snowman as far as it is built: a snowball on the first day.
+const snowman = atom({ plugin: 'winter', key: 'snowman' } as const, { stage: 1, gifts: 0 })
 
 // The least time a kind of work stays on the band before the next one takes its
 // place, so a run of quick tools shows as one each a moment, not as a flicker.
@@ -147,12 +178,44 @@ let bellEnd: Timer | undefined
 let focusShown: { startedAt: number; at: number } | undefined
 let lastMood: Mood | undefined
 
+// The day the snowman was last worked on, as this load saw it.
+let builtDay = ''
+
+// The snowman's build moves on: a part on a new day, a step nearer a gift with each
+// answer. The store keeps it; with none to keep it in, the snowman stays as it is.
+async function build($: EngineInterface, answered: boolean): Promise<void> {
+  try {
+    const kept = await $.store.get('snowman')
+    const was = isBuild(kept) ? kept : FRESH_BUILD
+    const now = builtOn(was, dayOf(await $.clock.now()), answered)
+
+    builtDay = now.lastDay
+
+    if (now.days !== was.days || now.answers !== was.answers || now.lastDay !== was.lastDay) {
+      await $.store.set('snowman', now)
+    }
+    const look = snowmanOf(now)
+    const shown = await read($, snowman)
+
+    if (shown.stage !== look.stage || shown.gifts !== look.gifts) {
+      await update($, snowman, () => look)
+    }
+  } catch {
+    // No store answered: the snowman stays as it is drawn.
+  }
+}
+
 // A look at the clock: the sky and the occasion, and whether to doze off. Each value is
-// written only when it changes, so nothing is drawn again for nothing.
+// written only when it changes, so nothing is drawn again for nothing. A new day builds
+// the snowman on.
 async function look($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
   const next = whenOf(now)
   const isDozing = next.isLate && now - stirred >= DOZE_AFTER_MS
+
+  if (builtDay !== '' && dayOf(now) !== builtDay) {
+    await build($, false)
+  }
 
   if (!sameWhen(await read($, when), next)) {
     await update($, when, () => next)
@@ -187,6 +250,9 @@ let turnStartedAt = 0
 let tools = 0
 let heating: Timer | undefined
 const HEAT_LOOK_MS = 10_000
+
+// What git just did that the band has yet to celebrate.
+let cheered: Cheer | undefined
 const agents = new Set<string>()
 let calls = 0
 
@@ -215,9 +281,10 @@ async function showWork($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
   const next = wanted()
   const heat = heatOf(now - turnStartedAt, tools)
+  const trek = trekOf(now - turnStartedAt)
   const shown = await read($, work)
 
-  if (shown.activity === next && shown.heat >= heat) {
+  if (shown.activity === next && shown.heat >= heat && shown.trek >= trek && cheered === undefined) {
     return
   }
   const left = Math.max(shownAt + SHOW_WORK_MS, openedUntil) - now
@@ -228,12 +295,30 @@ async function showWork($: EngineInterface): Promise<void> {
     return
   }
   shownAt = now
+
+  const cheer = cheered
+
+  cheered = undefined
   await update($, work, old => ({
     ...old,
     activity: next,
     heat: heat > old.heat ? heat : old.heat,
-    opening: old.activity === next ? ('stay' as const) : ('switch' as const),
+    trek: Math.max(old.trek, trek),
+    opening: cheer ?? (old.activity === next ? ('stay' as const) : ('switch' as const)),
   }))
+}
+
+// A shell command that ran and did something in git worth a cheer, while a turn is
+// under way: the band shows it next.
+async function cheerFor($: EngineInterface, command: string): Promise<boolean> {
+  const cheer = cheerOf(command)
+
+  if (cheer === undefined || (await read($, beat))?.mood !== 'working') {
+    return false
+  }
+  cheered = bothOf(cheered, cheer)
+
+  return true
 }
 
 // A turn begins or ends: the band's next work opens the turn afresh, met by how its
@@ -245,6 +330,7 @@ async function freshWork($: EngineInterface, tone: Tone = 'none'): Promise<void>
   switching = undefined
   heating?.cancel()
   heating = undefined
+  cheered = undefined
   shownAt = await $.clock.now()
   openedUntil = shownAt + openingMsOf(tone)
   turnStartedAt = shownAt
@@ -337,6 +423,9 @@ export const register: Register = on => {
     focusShown = undefined
     lastMood = undefined
 
+    // No compaction is under way as a session starts or reloads.
+    await update($, isShoveling, () => false)
+
     if (session !== null && !session.isDone && session.endsAt > now) {
       armFocus($, session.endsAt - now)
     } else if (session !== null) {
@@ -347,6 +436,9 @@ export const register: Register = on => {
     const kept = await $.store.get('motion')
 
     await update($, motion, () => (isMotion(kept) ? kept : 'on'))
+
+    // The snowman as far as it is built, a part on to it on a new day.
+    await build($, false)
 
     // The clock now, and once a minute from now on.
     await stir($)
@@ -415,7 +507,7 @@ export const register: Register = on => {
     if (e.agentId === undefined) {
       await stir($)
       await freshWork($, toneOf(e.text))
-      await update($, beat, () => ({ mood: 'working', turnId: e.turnId, heat: 0 }))
+      await update($, beat, () => ({ mood: 'working', turnId: e.turnId, heat: 0, trek: 0 }))
       // Every few seconds, a look at how hard the turn is working.
       heating = $.clock.every(HEAT_LOOK_MS, () => void showWork($))
     } else {
@@ -426,10 +518,17 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // A tool on the main loop: the character acts it out while it runs.
+  // A tool on the main loop: the character acts it out while it runs. A commit or a
+  // push that went through, Claude's own or an agent's, is cheered.
   on('tool.call', async ($, e, next) => {
     if (e.agentId !== undefined) {
-      return next(e)
+      const result = await next(e)
+
+      if (e.tool === 'Bash' && result.deny === undefined && result.isError !== true && (await cheerFor($, e.command))) {
+        await showWork($)
+      }
+
+      return result
     }
     const call = e.tool_use_id ?? `call-${calls++}`
 
@@ -437,11 +536,19 @@ export const register: Register = on => {
     running.set(call, activityOf(e.tool))
     await showWork($)
 
+    let result: Awaited<ReturnType<typeof next>> | undefined
+
     try {
-      return await next(e)
+      result = await next(e)
+
+      return result
     } finally {
       running.delete(call)
       isAsking = false
+
+      if (e.tool === 'Bash' && result !== undefined && result.deny === undefined && result.isError !== true) {
+        await cheerFor($, e.command)
+      }
       await showWork($)
     }
   })
@@ -466,6 +573,40 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // After each turn the engine measures the session: the snow drifts as deep as the
+  // context is full, drawn again only when it changes.
+  on('session.measure', async ($, e, next) => {
+    const level = driftOf(e.context.percent)
+
+    if ((await read($, drift)) !== level) {
+      await update($, drift, () => level)
+    }
+
+    return next(e)
+  })
+
+  // The conversation compacted: the character shovels the snow away while it runs,
+  // and the drifts are gone once it is done. A subagent's own compaction, or one only
+  // worked out ahead of time, is none of the band's.
+  on('session.compact', async ($, e, next) => {
+    if (e.agentId !== undefined || e.trigger === 'precompute') {
+      return next(e)
+    }
+    await update($, isShoveling, () => true)
+
+    try {
+      const result = await next(e)
+
+      if (result.skip === undefined) {
+        await update($, drift, () => 0)
+      }
+
+      return result
+    } finally {
+      await update($, isShoveling, () => false)
+    }
+  })
+
   on('turn.complete', async ($, e, next) => {
     if (e.agentId !== undefined) {
       // An agent's run is over: its helper goes back.
@@ -474,12 +615,20 @@ export const register: Register = on => {
     } else {
       const mood = ENDING_OF[e.reason]
       const { turnId } = e
-      // How hard it worked, by the end: a hard turn answered ends in fireworks.
-      const { heat } = await read($, work)
+      // How hard and how long it worked, by the end: a hard turn answered ends in
+      // fireworks, a long one in a flag planted.
+      const shown = await read($, work)
+      const heat = shown.heat
+      const trek = Math.max(shown.trek, trekOf((await $.clock.now()) - turnStartedAt))
 
       await stir($)
       await freshWork($)
-      await update($, beat, () => ({ mood, turnId, heat }))
+      await update($, beat, () => ({ mood, turnId, heat, trek }))
+
+      // An answer brings the snowman a step nearer its next gift.
+      if (e.reason === 'answer') {
+        await build($, true)
+      }
 
       // Then back to the chase, unless another turn has begun meanwhile.
       $.clock.after(ENDING_MS[mood] + SETTLE_MS, () => {
@@ -511,7 +660,10 @@ export const register: Register = on => {
     // late at night when nothing has happened for a while.
     const rest: Mood =
       session !== null ? (session.isDone ? 'bell' : 'focus') : (await read($, isAsleep)) ? 'sleep' : 'idle'
-    const mood: Mood = e.props.isWorking ? 'working' : (now?.mood ?? rest)
+    // Shoveling while the conversation is compacted comes before all.
+    const mood: Mood = (await read($, isShoveling)) ? 'shovel' : e.props.isWorking ? 'working' : (now?.mood ?? rest)
+    const deep = await read($, drift)
+    const built = await read($, snowman)
     const at = await read($, work)
     const { Box, Svg } = $.ui.resolve(e)
     const calm = how === 'calm'
@@ -524,15 +676,17 @@ export const register: Register = on => {
 
     const source =
       mood === 'focus' && session !== null
-        ? focusBandFor(calm, occasion, session, focusShown?.at ?? session.startedAt)
-        : bandFor(mood, calm, occasion, at, (now?.heat ?? 0) >= 2)
+        ? focusBandFor(calm, occasion, session, focusShown?.at ?? session.startedAt, deep, built)
+        : bandFor(mood, calm, occasion, at, now, deep, built)
     const minutes = session === null ? 0 : Math.round((session.endsAt - session.startedAt) / 60_000)
-    const alt =
+    const said =
       mood === 'working'
         ? workAltOf(at)
         : mood === 'focus'
           ? `${ALT.focus} of ${minutes} minute${minutes === 1 ? '' : 's'}`
           : ALT[mood]
+    // Deep snow says the context is nearly full.
+    const alt = deep >= 3 && mood !== 'shovel' ? `${said}; the snow drifts deep as the context fills` : said
 
     // The widest the stage can be: the desktop draws the frame that wide but never past
     // its slot (max-width 100%), so the band runs the slot's whole width, and the drawing

@@ -172,6 +172,16 @@ export const ARMS = {
     [1, 6, 2, 1],
     [15, 6, 2, 1],
   ],
+  // Shoveling: both hands low on the handle to dig, then up by its head to heave the
+  // snow away.
+  dig: [
+    [13, 6, 2, 1],
+    [15, 5, 2, 2],
+  ],
+  heave: [
+    [1, 2, 2, 2],
+    [3, 1, 2, 2],
+  ],
 } as const satisfies Record<string, readonly Rect[]>
 
 // Waving at whoever has the pointer over the band: the right arm up, then out.
@@ -601,6 +611,84 @@ export const RING = {
   ],
 } as const satisfies Record<string, readonly Rect[]>
 
+// Git: a flag held high and waved for a commit, its pennant fluttering; a snowball
+// thrown up out of the band for a push, and a star where it went.
+export const GIT_FLAG = {
+  pole: [[16, -6, 1, 8]],
+  wave1: [[17, -6, 4, 2]],
+  wave2: [
+    [17, -5, 4, 2],
+    [20, -6, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const SNOWBALL = {
+  ball: [
+    [0, 0, 2, 2],
+  ],
+  shade: [[1, 1, 1, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const TWINKLE = {
+  big: [
+    [1, 0, 1, 3],
+    [0, 1, 3, 1],
+  ],
+  small: [[1, 1, 1, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export type Twinkle = keyof typeof TWINKLE | 'none'
+
+// The flags of a long turn, one a minute along the snow: a small one on a stick, and the
+// big one planted at the end of a long turn answered, a star on it, flying.
+export const TREK_FLAG = {
+  pole: [[0, 0, 1, 6]],
+  flag: [[1, 0, 3, 2]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const SUMMIT_FLAG = {
+  pole: [[0, 0, 1, 10]],
+  fly1: [[1, 0, 5, 3]],
+  fly2: [
+    [1, 1, 5, 2],
+    [1, 0, 3, 1],
+  ],
+  star: [[3, 1, 1, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+// The shovel, dug into the snow at its right, then heaved up over its head with a load
+// of snow on the blade; and the snow flung off it, up and away to the left. All of it
+// on the band, even at home by its left edge.
+export const SHOVEL = {
+  dig: [
+    [17, 5, 1, 1],
+    [18, 6, 1, 1],
+    [19, 7, 1, 1],
+    [20, 8, 1, 1],
+  ],
+  heave: [[4, -2, 1, 3]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const BLADE = {
+  dig: [[19, 9, 3, 1]],
+  heave: [[3, -3, 3, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const LOAD = {
+  heave: [[3, -5, 3, 2]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const FLUNG = {
+  flung: [
+    [1, -6, 1, 1],
+    [-1, -4, 1, 1],
+    [2, -7, 1, 1],
+    [0, -7, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+export type Shovel = keyof typeof SHOVEL | 'none'
+
 // The snowman, on the grid of the character's own size and standing on the same snow:
 // a top hat, a head with coal eyes and a carrot pointing right, a round body with two
 // coal buttons, and shading down its right side so it shows on a white page too.
@@ -629,6 +717,64 @@ export const SNOWMAN = {
     [3, 8, 1, 1],
   ],
   carrot: [[4, 3, 4, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+// The snowman as it is built, a part a day: the big ball below, then the head on it,
+// its coal eyes and buttons, the carrot, the stick arms, and its top hat. Together they
+// are the whole snowman above, pixel for pixel.
+export const SNOWMAN_PARTS = {
+  body: [
+    [1, 5, 6, 1],
+    [0, 6, 8, 3],
+    [1, 9, 6, 1],
+  ],
+  bodyShade: [
+    [6, 5, 1, 1],
+    [7, 6, 1, 3],
+    [6, 9, 1, 1],
+  ],
+  head: [
+    [2, 0, 4, 1],
+    [1, 1, 6, 3],
+    [2, 4, 4, 1],
+  ],
+  headShade: [
+    [6, 1, 1, 3],
+    [5, 4, 1, 1],
+  ],
+  face: [
+    [2, 2, 1, 1],
+    [4, 2, 1, 1],
+    [3, 6, 1, 1],
+    [3, 8, 1, 1],
+  ],
+  hat: [
+    [2, -3, 4, 2],
+    [1, -1, 6, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+// What it is given as the answers add up: a red scarf, a broom held at its side, and a
+// gold star on its hat.
+export const STRAW = '#c9a35c'
+export const SNOWMAN_GIFTS = {
+  scarf: [
+    [1, 4, 6, 1],
+    [5, 5, 1, 2],
+  ],
+  scarfStripe: [
+    [3, 4, 1, 1],
+    [5, 6, 1, 1],
+  ],
+  broomStick: [[-3, 1, 1, 7]],
+  broomStraw: [
+    [-4, 8, 3, 1],
+    [-4, 9, 3, 1],
+  ],
+  star: [
+    [3, -6, 1, 3],
+    [2, -5, 3, 1],
+  ],
 } as const satisfies Record<string, readonly Rect[]>
 
 // Its stick arms: the left one still, the right one lifted to wave back.

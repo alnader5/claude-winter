@@ -24,6 +24,8 @@
 //   the character folds the laptop away and cheers with a tick, wonders ("?") or just
 //   stands, while the spark spins down. Then the chase starts over.
 // - sleep, late at night with nothing to do: it dozes in the snow, z's over its head.
+// - shovel, while the conversation is compacted: it shovels away the snow that drifts
+//   up along the band as the conversation's context fills.
 // - focus, while the person focuses (/winter focus): it sits still in the snow, eyes
 //   shut, while the spark's rays go out one by one until the time is up. Then bell: a
 //   bell rings over the spark, relit, and the character stands and stretches.
@@ -38,6 +40,7 @@ import {
   ARMS,
   BEAK,
   BELL,
+  BLADE,
   BELL_GOLD,
   BLUSH,
   BLUSH_PINK,
@@ -59,7 +62,9 @@ import {
   FACE,
   FLAKE,
   FLAKE_BLUE,
+  FLUNG,
   FOLD,
+  GIT_FLAG,
   GLYPHS,
   HAT,
   HEART,
@@ -81,6 +86,7 @@ import {
   LEVER,
   LID,
   LID_GRAY,
+  LOAD,
   LOGO,
   NOTE,
   ORANGE,
@@ -109,28 +115,37 @@ import {
   SCREEN,
   SCREEN_DARK,
   SHADE,
+  SHOVEL,
   SHADOW,
   SNEEZE,
+  SNOWBALL,
   SNOWMAN,
   SNOWMAN_ARMS,
+  SNOWMAN_GIFTS,
+  SNOWMAN_PARTS,
   SNOW_SHADE,
   SNOW_WHITE,
   SPRITE_HEIGHT,
   SPRITE_WIDTH,
   STICK,
+  STRAW,
   STRIPE,
+  SUMMIT_FLAG,
   SWEAT,
   SWEAT_BLUE,
   TERMINAL_GREEN,
   TICK,
+  TREK_FLAG,
+  TWINKLE,
   UNIT,
   WAVE,
   balloonOf,
   pathOf,
 } from './sprite'
-import type { Book, Box, Burst, Glyph, Laptop, Rect, Scope, Screen, Sweat } from './sprite'
+import type { Book, Box, Burst, Glyph, Laptop, Rect, Scope, Screen, Shovel, Sweat, Twinkle } from './sprite'
+import type { Drift, Snowman } from '../types'
 import type { Occasion } from './time'
-import { FRESH_WORK, MAX_HELPERS } from './work'
+import { FRESH_WORK, MAX_HELPERS, MAX_TREK } from './work'
 import type { Activity, Heat, Tone, Work } from './work'
 
 export const BAND_HEIGHT = 36
@@ -144,8 +159,11 @@ export const MIN_WIDTH = 240
 export const MAX_WIDTH = 1200
 export const REFERENCE_WIDTH = 480
 
-export type Mood = 'idle' | 'working' | 'joy' | 'puzzled' | 'closing' | 'sleep' | 'focus' | 'bell'
-export type Ending = Exclude<Mood, 'idle' | 'working' | 'sleep' | 'focus' | 'bell'>
+export type Mood = 'idle' | 'working' | 'joy' | 'puzzled' | 'closing' | 'sleep' | 'focus' | 'bell' | 'shovel'
+export type Ending = Exclude<Mood, 'idle' | 'working' | 'sleep' | 'focus' | 'bell' | 'shovel'>
+
+// The snowman whole, with no gifts yet: as the band draws it when it is not told.
+export const WHOLE_SNOWMAN: Snowman = { stage: 6, gifts: 0 }
 
 // A focus session as the band draws it: how long it runs, and how far into it the
 // band is drawn, both in milliseconds.
@@ -161,6 +179,7 @@ export const ALT: Readonly<Record<Mood, string>> = {
   sleep: "Claude's pixel character asleep in the snow beside the spark: it is late at night",
   focus: "Claude's pixel character sitting still in the snow while the spark's rays go out one by one: a focus session",
   bell: "Claude's pixel character stretching as a bell rings over the spark: the focus session is over",
+  shovel: "Claude's pixel character shoveling the snow away: the conversation is being compacted",
 }
 
 // The snowy ground along the band's foot: a gray-blue edge over white, so it shows on
@@ -293,6 +312,14 @@ export type Frame = {
   // Pink cheeks, and a bead of sweat flying off its head.
   blush: boolean
   sweat: Sweat
+  // Git: the flag it waves for a commit; the snowball it throws up for a push, where it
+  // is (in plain pixels), and the star that shines where it went.
+  gitFlag: 'none' | 'wave1' | 'wave2'
+  snowball: Placed<'ball'> | null
+  twinkle: Twinkle
+  // The shovel, dug in or heaved up, and the snow just flung off it.
+  shovel: Shovel
+  flung: boolean
   // The scarf's end: hanging still, or streaming behind as the character moves.
   scarf: Scarf
   // A puff of breath in the cold.
@@ -332,6 +359,11 @@ export const HOME: Frame = {
   note: false,
   blush: false,
   sweat: 'none',
+  gitFlag: 'none',
+  snowball: null,
+  twinkle: 'none',
+  shovel: 'none',
+  flung: false,
   scarf: 'still',
   breath: 'none',
   pal: 'rest',
@@ -986,6 +1018,53 @@ const MEET: Readonly<Record<Exclude<Tone, 'none'>, (script: Script) => void>> = 
   question: wonderAt,
 }
 
+// A commit: it raises a flag high and waves it, happy.
+function commitAt({ put }: Script): void {
+  put(2, { arms: 'up', eyes: 'happy', gitFlag: 'wave1' })
+
+  for (let flap = 0; flap < 4; flap++) {
+    put(3, { gitFlag: 'wave2' })
+    put(3, { gitFlag: 'wave1' })
+  }
+  put(0, { gitFlag: 'none', arms: 'rest', eyes: 'ahead' })
+}
+
+// Where a pushed snowball flies, a frame at a time, in CSS pixels: from the raised hand
+// up and out over the top of the band.
+const SNOWBALL_PATH: readonly (readonly [number, number])[] = [
+  [34, 12],
+  [40, 6],
+  [46, 1],
+  [52, -3],
+  [58, -8],
+]
+
+// Where the star shines after it, at the band's top.
+export const TWINKLE_AT = { x: 60, y: 1 }
+
+// A push: it crouches, throws a snowball up out of the band, and a star shines where it
+// went.
+function pushAt({ put }: Script): void {
+  put(2, { crouch: true, legs: 'tuck', eyes: 'up' })
+  put(1, { crouch: false, legs: 'stand', arms: 'up', snowball: { x: 30, y: 16, pose: 'ball' } })
+  SNOWBALL_PATH.forEach(([x, y]) => put(1, { snowball: { x, y, pose: 'ball' } }))
+  put(0, { snowball: null, arms: 'rest' })
+  put(3, { twinkle: 'big' })
+  put(2, { twinkle: 'small' })
+  put(3, { twinkle: 'big', eyes: 'happy' })
+  put(2, { twinkle: 'none', eyes: 'ahead' })
+}
+
+// How each celebration plays: a commit and a push one after the other for both.
+const CHEER: Readonly<Record<'commit' | 'push' | 'ship', (script: Script) => void>> = {
+  commit: commitAt,
+  push: pushAt,
+  ship: script => {
+    commitAt(script)
+    pushAt(script)
+  },
+}
+
 // In a hurry a bead of sweat flies off its head a little more than once a second.
 const SWEAT_EVERY = 14
 
@@ -1029,7 +1108,12 @@ export function workingOf({
 
     return { intro: [], loop: frames, poster: frames[0] ?? HOME }
   }
-  if (opening === 'switch') {
+  if (opening === 'commit' || opening === 'push' || opening === 'ship') {
+    // Git did something worth a cheer: the prop goes, the cheer, then the prop again.
+    intro.put(2, { laptop: 'poof' })
+    intro.put(0, { laptop: 'none' })
+    CHEER[opening](intro)
+  } else if (opening === 'switch') {
     intro.put(2, { laptop: 'poof' })
     intro.put(0, { laptop: 'none' })
   } else if (tone === 'none') {
@@ -1088,6 +1172,28 @@ export function sleepingOf(): Reel {
   put(seconds(0.6))
 
   return { intro: intro.frames, loop: loop.frames, poster: loop.frames.find(frame => frame.say === 'z2') ?? HOME }
+}
+
+/**
+ * The conversation compacted: it takes up a shovel and clears the snow, digging in at
+ * its right, heaving each load up over its head and flinging it away.
+ */
+export function shovelingOf(): Reel {
+  const intro = scriptFrom(HOME)
+
+  intro.put(2, { eyes: 'down', arms: 'dig', shovel: 'dig' })
+
+  const loop = scriptFrom(intro.now())
+
+  for (let scoop = 0; scoop < 3; scoop++) {
+    loop.put(4, { crouch: true, legs: 'tuck', arms: 'dig', shovel: 'dig', eyes: 'down' })
+    loop.put(3, { crouch: false, legs: 'stand', arms: 'heave', shovel: 'heave', eyes: 'up' })
+    loop.put(2, { flung: true })
+    loop.put(2, { flung: false, arms: 'dig', shovel: 'dig', eyes: 'down' })
+  }
+  loop.put(seconds(0.4), { eyes: 'right' })
+
+  return { intro: intro.frames, loop: loop.frames, poster: loop.frames[0] ?? HOME }
 }
 
 /**
@@ -1203,6 +1309,9 @@ export function reelOf(mood: Mood, story: Story = storyOf(), work: Work = FRESH_
   }
   if (mood === 'focus') {
     return focusingOf()
+  }
+  if (mood === 'shovel') {
+    return shovelingOf()
   }
   if (mood === 'bell') {
     return ringingOf()
@@ -1501,6 +1610,15 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1)
     return `${home}}`
   }
 
+  if (mood === 'shovel') {
+    // At home, turning slowly while the snow is cleared.
+    return [
+      `${home}}`,
+      '.spark-spin{animation:spark-whirl 6s linear infinite}',
+      '@keyframes spark-whirl{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}',
+    ].join('\n')
+  }
+
   if (mood === 'focus') {
     // Still, its glow breathing softly, while its rays go out.
     return [
@@ -1717,6 +1835,99 @@ function fireworksOf(): Layer {
   }
 }
 
+/**
+ * Where a long turn's flag for minute `count` stands: the first just past the spark,
+ * the tenth near the far end, the rest evenly between, at any width.
+ */
+export function trekAt(count: number): Place {
+  return between(placeAt(76), placeAt(-48, 1), (count - 1) / (MAX_TREK - 1))
+}
+
+// How many minutes a turn runs, at the least, to end with the big flag.
+export const SUMMIT_AFTER = 2
+
+// A long turn's flags along the snow. The newest springs up out of the snow as it is
+// planted; a long turn answered plants the big flag in the last one's place, a star on
+// it, flying.
+function trekLayerOf(count: number, { isNew, summit }: { isNew: boolean; summit: boolean }): Layer {
+  let svg = ''
+
+  for (let minute = 1; minute <= count; minute++) {
+    const isSummit = summit && minute === count
+    const pole = isSummit ? SUMMIT_FLAG.pole : TREK_FLAG.pole
+    const height = (pole[0]?.[3] ?? 6) * UNIT
+    const isPlanted = isSummit || (isNew && minute === count)
+    const flag = isSummit
+      ? `<path class="fly1" fill="${KNIT_RED}" d="${pathOf(SUMMIT_FLAG.fly1)}"/>` +
+        `<path class="fly2" fill="${KNIT_RED}" d="${pathOf(SUMMIT_FLAG.fly2)}"/>` +
+        `<path fill="${PARTY_GOLD}" d="${pathOf(SUMMIT_FLAG.star)}"/>`
+      : `<path fill="${KNIT_RED}" d="${pathOf(TREK_FLAG.flag)}"/>`
+
+    svg +=
+      `<g class="px" style="transform:translate(${cssOf(trekAt(minute))},${BAND_HEIGHT - GROUND - height}px)">` +
+      `<g${isPlanted ? ' class="plant"' : ''}><path fill="${STICK}" d="${pathOf(pole)}"/>${flag}</g></g>`
+  }
+
+  return {
+    svg,
+    css:
+      count === 0
+        ? ''
+        : '.plant{transform-box:fill-box;transform-origin:50% 100%;animation:plant 0.5s steps(5,end) both}' +
+          '@keyframes plant{from{transform:scaleY(0)}to{transform:scaleY(1)}}' +
+          (summit
+            ? '.flags .plant{animation-delay:0.6s}' +
+              '.fly1,.fly2{animation:fly 0.6s step-end infinite}.fly2{animation-delay:-0.3s}' +
+              '@keyframes fly{0%{opacity:1}50%{opacity:0}}'
+            : ''),
+  }
+}
+
+// Where the drifts pile up along the band, and how far each spreads either side of its
+// middle, as shares of the stage's width: clear of the ice.
+const MOUNDS: readonly (readonly [number, number])[] = [
+  [0.1, 0.05],
+  [0.26, 0.07],
+  [0.45, 0.05],
+  [0.83, 0.06],
+  [0.95, 0.04],
+]
+const DRIFT_SNOW = '#cfdbe8'
+
+// The snow drifted up along the band, `level` steps deep: each mound a stack of steps,
+// narrower going up, edged along the top of each. Shoveled, they sink into the ground.
+function driftOf(level: Drift, isShoveling: boolean): Layer {
+  if (level === 0) {
+    return { svg: '', css: '' }
+  }
+  const foot = BAND_HEIGHT - GROUND
+  const share = (value: number) => `${Number((value * 100).toFixed(3))}%`
+  let svg = ''
+
+  for (const [middle, spread] of MOUNDS) {
+    const half = (step: number) => spread * (1 - step / (level + 1))
+
+    for (let step = 0; step < level; step++) {
+      const y = foot - (step + 1) * UNIT
+      const out = half(step)
+      const inner = step + 1 < level ? half(step + 1) : 0
+      const edge = (from: number, width: number) =>
+        `<rect x="${share(from)}" y="${y}" width="${share(width)}" height="1" fill="${GROUND_EDGE}"/>`
+
+      svg += `<rect x="${share(middle - out)}" y="${y}" width="${share(2 * out)}" height="${UNIT}" fill="${DRIFT_SNOW}"/>`
+      svg += inner === 0 ? edge(middle - out, 2 * out) : edge(middle - out, out - inner) + edge(middle + inner, out - inner)
+    }
+  }
+
+  return {
+    svg: `<g class="drift px">${svg}</g>`,
+    css: isShoveling
+      ? '.drift{transform-box:fill-box;transform-origin:50% 100%;animation:drift-down 6s ease-in forwards}' +
+        '@keyframes drift-down{to{transform:scaleY(0.25)}}'
+      : '',
+  }
+}
+
 // New Year's confetti: pieces falling the height of the band in pixel steps, each on a
 // loop of its own and drifting a little to one side. Held still, they are out of sight
 // over the band.
@@ -1811,7 +2022,7 @@ function textOf(css: string): string {
 
 // Everything that moves: what reduced motion holds still, and /winter calm too.
 const MOVING =
-  '.m,.ray,.spark-x,.spark-hop,.spark-pose,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint,.confetti,.lantern-lit,.helper,.helper-a,.helper-b,.rise,.rocket,.firework,.bell,.ring-near,.ring-far'
+  '.m,.ray,.spark-x,.spark-hop,.spark-pose,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint,.confetti,.lantern-lit,.helper,.helper-a,.helper-b,.rise,.rocket,.firework,.bell,.ring-near,.ring-far,.plant,.fly1,.fly2,.drift'
 
 const STILL = `:is(${MOVING}){animation:none!important}`
 
@@ -1868,14 +2079,30 @@ export function bandOf(
     work = FRESH_WORK,
     grand = false,
     focus = { totalMs: 25 * 60_000, elapsedMs: 0 },
-  }: { calm?: boolean; occasion?: Occasion; work?: Work; grand?: boolean; focus?: FocusTime } = {},
+    trek = 0,
+    drift = 0,
+    snowman = WHOLE_SNOWMAN,
+  }: {
+    calm?: boolean
+    occasion?: Occasion
+    work?: Work
+    grand?: boolean
+    focus?: FocusTime
+    // The minutes a turn ran, for its ending's flags.
+    trek?: number
+    // How deep the snow has drifted: how full the conversation's context is.
+    drift?: Drift
+    // How far the snowman is built, and its gifts.
+    snowman?: Snowman
+  } = {},
 ): string {
   const story = storyOf()
   const reel = reelOf(mood, story, work)
   const { intro, loop, poster } = reel
   const frames = [...intro, ...loop]
-  // The spark glows at work and fades out of it, and has no glow in the chase or asleep.
-  const isLit = mood !== 'idle' && mood !== 'sleep'
+  // The spark glows at work and fades out of it, and has no glow in the chase, asleep or
+  // while the character shovels.
+  const isLit = mood !== 'idle' && mood !== 'sleep' && mood !== 'shovel'
   // The footprints and the shed sparks follow the chase, which work, sleep and a focus
   // session have none of.
   const isChase = mood === 'idle' || mood === 'joy' || mood === 'puzzled' || mood === 'closing'
@@ -1974,6 +2201,18 @@ export function bandOf(
   const kick = layerOf('kick', KICK, frame => frame.burst, reel, FLAKE_BLUE)
   const sweat = layerOf('sweat', SWEAT, frame => frame.sweat, reel, SWEAT_BLUE)
   const hasPlane = frames.some(frame => frame.plane !== null)
+  // Git: the flag waved, the snowball thrown, the star after it.
+  const gitFlag = [
+    layerOf('git-pole', { wave1: GIT_FLAG.pole, wave2: GIT_FLAG.pole }, frame => frame.gitFlag, reel, STICK),
+    layerOf('git-flag', { wave1: GIT_FLAG.wave1, wave2: GIT_FLAG.wave2 }, frame => frame.gitFlag, reel, TICK),
+  ]
+  const ballPose = (frame: Frame) => frame.snowball?.pose ?? 'none'
+  const snowball = [
+    layerOf('ball', { ball: SNOWBALL.ball }, ballPose, reel, SNOW_WHITE),
+    layerOf('ball-shade', { ball: SNOWBALL.shade }, ballPose, reel, SNOW_SHADE),
+  ]
+  const twinkle = layerOf('twinkle', TWINKLE, frame => frame.twinkle, reel, PARTY_GOLD)
+  const hasBall = frames.some(frame => frame.snowball !== null)
   const pal = layerOf('pal', SNOWMAN_ARMS, frame => frame.pal, reel, STICK)
   const flake = layerOf('flake', FLAKE, frame => frame.flake?.pose ?? 'none', reel, FLAKE_BLUE)
   const robinPose = (frame: Frame) => frame.robin?.pose ?? 'none'
@@ -2012,6 +2251,24 @@ export function bandOf(
   const fireworks = mood === 'joy' && grand ? fireworksOf() : { svg: '', css: '' }
   // The bell at the end of a focus session.
   const bell = mood === 'bell' ? bellOf() : { svg: '', css: '' }
+  // The snow drifted up as the context fills; shoveled away while it is compacted.
+  const drifted = driftOf(drift, mood === 'shovel')
+  // The shovel, its blade, the load on it and the snow flung off.
+  const shovel = [
+    layerOf('shovel', SHOVEL, frame => frame.shovel, reel, STICK),
+    layerOf('blade', BLADE, frame => frame.shovel, reel, LID_GRAY),
+    layerOf('load', LOAD, frame => (frame.shovel === 'heave' && !frame.flung ? 'heave' : 'none'), reel, SNOW_WHITE),
+    layerOf('flung', FLUNG, frame => (frame.flung ? 'flung' : 'none'), reel, FLAKE_BLUE),
+  ]
+  // A long turn's flags: while it works, and as it ends; the big one for a long turn
+  // answered.
+  const isEnding = mood === 'joy' || mood === 'puzzled' || mood === 'closing'
+  const flags =
+    mood === 'working'
+      ? trekLayerOf(work.trek, { isNew: work.opening === 'stay', summit: false })
+      : isEnding
+        ? trekLayerOf(trek, { isNew: false, summit: mood === 'joy' && trek >= SUMMIT_AFTER })
+        : { svg: '', css: '' }
 
   // What the occasion brings: confetti for New Year, a lantern for Ramadan.
   const confetti = occasion === 'newyear' ? confettiOf() : { svg: '', css: '' }
@@ -2045,6 +2302,10 @@ export function bandOf(
       ? `.plane-at{${placeOf(poster.plane)};animation-name:${namesOf('plane-at', reel)}}` +
         tracksOf('plane-at', reel, frame => placeOf(frame.plane))
       : '',
+    hasBall
+      ? `.ball-at{${placeOf(poster.snowball)};animation-name:${namesOf('ball-at', reel)}}` +
+        tracksOf('ball-at', reel, frame => placeOf(frame.snowball))
+      : '',
     `.snowman{transform:translate(${cssOf(TRACK.snowman)},${TOP}px)}`,
     `.glint-at{transform:translateX(${cssOf(shift(TRACK.iceStart, 4 * UNIT))})}`,
     shadows.css,
@@ -2070,6 +2331,9 @@ export function bandOf(
     ...note.map(layer => layer.css),
     blush.css,
     sweat.css,
+    ...gitFlag.map(layer => layer.css),
+    ...snowball.map(layer => layer.css),
+    twinkle.css,
     sneeze.css,
     kick.css,
     helpers.css,
@@ -2084,6 +2348,9 @@ export function bandOf(
     rising.css,
     fireworks.css,
     bell.css,
+    flags.css,
+    drifted.css,
+    ...shovel.map(layer => layer.css),
     mood === 'focus' ? RAY_OUT : '',
     // Now and then the light catches the ice.
     '.glint{opacity:0;animation:glint 5s step-end infinite}',
@@ -2128,13 +2395,29 @@ export function bandOf(
     `<rect class="px" x="${iceStart}" y="${foot}" width="${iceWidth}" height="${GROUND / 2}" fill="${ICE_EDGE}"/>` +
     `<rect class="px" x="${iceStart}" y="${foot + GROUND / 2}" width="${iceWidth}" height="${GROUND / 2}" fill="${ICE}"/>` +
     `<g class="glint-at"><rect class="glint px" y="${foot}" width="${2 * UNIT}" height="${GROUND / 2}" fill="${GLINT}"/></g>`
-  const snowman =
+  // The snowman as far as it is built, a part a day, and the gifts it has earned: the
+  // scarf once it has a neck, the broom at its side, the star once it has a hat. It
+  // waves back once it has arms.
+  const part = (rects: readonly Rect[], fill: string, stage: number) =>
+    snowman.stage >= stage ? `<path fill="${fill}" d="${pathOf(rects)}"/>` : ''
+  const gift = (rects: readonly Rect[], fill: string, gifts: number, stage = 1) =>
+    snowman.gifts >= gifts && snowman.stage >= stage ? `<path fill="${fill}" d="${pathOf(rects)}"/>` : ''
+  const snowmanSvg =
     '<g class="px snowman">' +
-    `<path fill="${SNOW_WHITE}" d="${pathOf(SNOWMAN.snow)}"/>` +
-    `<path fill="${SNOW_SHADE}" d="${pathOf(SNOWMAN.shade)}"/>` +
-    `<path fill="${COAL}" d="${pathOf(SNOWMAN.coal)}"/>` +
-    `<path fill="${CARROT}" d="${pathOf(SNOWMAN.carrot)}"/>` +
-    `${pal.svg}</g>`
+    gift(SNOWMAN_GIFTS.broomStick, STICK, 2) +
+    gift(SNOWMAN_GIFTS.broomStraw, STRAW, 2) +
+    part(SNOWMAN_PARTS.body, SNOW_WHITE, 1) +
+    part(SNOWMAN_PARTS.bodyShade, SNOW_SHADE, 1) +
+    part(SNOWMAN_PARTS.head, SNOW_WHITE, 2) +
+    part(SNOWMAN_PARTS.headShade, SNOW_SHADE, 2) +
+    part(SNOWMAN_PARTS.face, COAL, 3) +
+    part(SNOWMAN.carrot, CARROT, 4) +
+    part(SNOWMAN_PARTS.hat, COAL, 6) +
+    gift(SNOWMAN_GIFTS.scarf, KNIT_RED, 1, 2) +
+    gift(SNOWMAN_GIFTS.scarfStripe, STRIPE, 1, 2) +
+    gift(SNOWMAN_GIFTS.star, PARTY_GOLD, 3, 6) +
+    (snowman.stage >= 5 ? pal.svg : '') +
+    '</g>'
   const hat =
     occasion === 'newyear'
       ? `<path fill="${PARTY_PURPLE}" d="${pathOf(PARTY_HAT.cone)}"/><path fill="${PARTY_GOLD}" d="${pathOf(PARTY_HAT.stripes)}"/>`
@@ -2151,13 +2434,13 @@ export function bandOf(
 <style>
 ${textOf(css)}
 </style>${defs}
-${ground}${marks}
-${snowman}${lantern.svg}
+${ground}${marks}${drifted.svg}
+${flags.svg === '' ? '' : `<g class="flags">${flags.svg}</g>`}${snowmanSvg}${lantern.svg}
 <g class="m walker px" fill-opacity="0.22">${shadows.svg}</g>
 ${embers}
 <g class="spark-x"><g class="spark-hop"><g transform="translate(${SPARK_BOX / 2} ${SPARK_CENTER_Y})">${glow}<g class="spark-pose"><g class="spark-tilt"><g class="spark-wind"><g class="spark-spin">${raysOf(mood === 'focus' ? focus : undefined)}</g></g></g></g><g class="px">${sneeze.svg}${kick.svg}${rising.svg}${fireworks.svg}</g></g></g></g>
 ${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}${confetti.svg}${bell.svg}${helpers.svg}
-<g class="m walker px">${answer.zones}<g class="poke"><g class="m jumper">${legs.svg}<g class="m body"><path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${blush.svg}${sweat.svg}${scope.map(layer => layer.svg).join('')}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${snores.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}${props.map(layer => layer.svg).join('')}${note.map(layer => layer.svg).join('')}</g>
-${hasPlane ? `<g class="m plane-at px">${plane.map(layer => layer.svg).join('')}</g>` : ''}${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}
+<g class="m walker px">${answer.zones}<g class="poke"><g class="m jumper">${legs.svg}<g class="m body">${shovel.map(layer => layer.svg).join('')}<path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${blush.svg}${sweat.svg}${gitFlag.map(layer => layer.svg).join('')}${scope.map(layer => layer.svg).join('')}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${snores.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}${props.map(layer => layer.svg).join('')}${note.map(layer => layer.svg).join('')}</g>
+${hasPlane ? `<g class="m plane-at px">${plane.map(layer => layer.svg).join('')}</g>` : ''}${hasBall ? `<g class="m ball-at px">${snowball.map(layer => layer.svg).join('')}</g>` : ''}${twinkle.svg === '' ? '' : `<g class="px" transform="translate(${TWINKLE_AT.x} ${TWINKLE_AT.y})">${twinkle.svg}</g>`}${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}
 </svg>`
 }

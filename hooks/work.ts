@@ -3,11 +3,29 @@
 // person. How many helpers it has out: the agents it sent off, still at work. And how
 // the turn's prompt sounded.
 
-import type { Activity, Heat, Opening, Tone, Work } from '../types'
+import type { Activity, Drift, Heat, Opening, Tone, Work } from '../types'
 
-export type { Activity, Heat, Opening, Tone, Work }
+export type { Activity, Drift, Heat, Opening, Tone, Work }
 
-export const FRESH_WORK: Work = { activity: 'think', opening: 'start', helpers: 0, tone: 'none', heat: 0 }
+export const FRESH_WORK: Work = { activity: 'think', opening: 'start', helpers: 0, tone: 'none', heat: 0, trek: 0 }
+
+// The most flags a turn plants along the snow: one a minute, for ten minutes.
+export const MAX_TREK = 10
+
+// How full the context is, in percent, for the snow to drift each step deeper.
+export const DRIFT_AT: readonly number[] = [30, 50, 70, 85]
+
+/** How deep the snow drifts for a context `percent` full. */
+export function driftOf(percent: number | undefined): Drift {
+  const level = DRIFT_AT.filter(at => (percent ?? 0) >= at).length
+
+  return level >= 4 ? 4 : level === 3 ? 3 : level === 2 ? 2 : level === 1 ? 1 : 0
+}
+
+/** How many flags a turn that has run `ms` milliseconds has planted. */
+export function trekOf(ms: number): number {
+  return Math.max(0, Math.min(MAX_TREK, Math.floor(ms / 60_000)))
+}
 
 // How long a turn runs, and how many tools it calls, to reach each heat: either does.
 export const HEAT_AFTER_MS: readonly number[] = [0, 20_000, 60_000, 180_000]
