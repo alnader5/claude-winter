@@ -19,6 +19,7 @@ import {
   isOnIce,
   trekAt,
   openingMsOf,
+  polished,
   pixelsOf,
   printsOf,
   reelOf,
@@ -300,6 +301,37 @@ test('the spark sneezes the flake off, and hides in the snow while the character
   expect(bandOf('working')).not.toContain('animation:spark-pose')
 })
 
+test('every move has its finish: the pom-pom lags, the body stretches and squashes, snow flies as it lands', () => {
+  const chase = polished(storyOf().frames, true)
+  const spring = chase.findIndex(frame => frame.hop === 10) - 2
+  const lands = chase.findIndex((frame, index) => index > spring && frame.hop === 0)
+
+  // The pounce: drawn out as it springs, squashed as it lands, snow about its feet.
+  expect(chase[spring - 1]?.hop).toBe(0)
+  expect(chase[spring]?.squash).toBe('stretch')
+  expect(chase[lands]?.squash).toBe('squash')
+  expect(chase.slice(lands, lands + 3).map(frame => frame.dust)).toEqual(['dust1', 'dust2', 'dust2'])
+  expect(chase[lands + 3]?.dust).toBe('none')
+  expect(chase.filter(frame => frame.squash === 'squash').length).toBe(chase.filter(frame => frame.squash === 'stretch').length)
+
+  // The pom-pom lags behind each way it goes: up, down, right and left.
+  chase.forEach((frame, index) => {
+    const before = chase[(index - 1 + chase.length) % chase.length] ?? frame
+    const dx = pixelsOf(frame.x, REFERENCE_WIDTH) - pixelsOf(before.x, REFERENCE_WIDTH)
+    const expected =
+      frame.hop > before.hop ? 'low' : frame.hop < before.hop ? 'high' : dx > 0 ? 'left' : dx < 0 ? 'right' : 'still'
+
+    expect(frame.pom).toBe(expected)
+  })
+
+  // In the drawing: the squash from its feet, and no pom-pom on a party hat.
+  expect(bandOf('idle')).toContain('scale(1.14,0.86)')
+  expect(bandOf('idle')).toContain('transform-box:fill-box;transform-origin:50% 100%')
+  expect(bandOf('idle')).toContain('class="m pom-left')
+  expect(bandOf('idle', { occasion: 'newyear' })).not.toContain('class="m pom-')
+  expect(bandOf('joy')).toContain('class="m dust-dust1')
+})
+
 test('it puffs in the cold after running, and its scarf streams behind it', () => {
   const { frames } = storyOf()
   const arrived = frames.findIndex(frame => isAt(frame.x, TRACK.stop))
@@ -447,9 +479,9 @@ test('each ending folds the laptop away and lands where the chase begins', () =>
     expect(gone > 0).toBe(true)
     expect(frames.slice(0, gone).every(frame => frame.hop === 0 && frame.say === 'none')).toBe(true)
     expectOnTrack(frames, false)
-    // It plays on into the chase.
-    expect(reel.intro).toEqual(frames)
-    expect(reel.loop).toEqual(storyOf().frames)
+    // It plays on into the chase, each with its finish.
+    expect(reel.intro).toEqual(polished(frames, false))
+    expect(reel.loop).toEqual(polished(storyOf().frames, true))
     expect(source).toContain('animation:spark-settle')
     expect(source.length < SVG_LIMIT).toBe(true)
   }
@@ -681,6 +713,97 @@ test('/winter focus sits the character still while the spark goes out, and rings
   await clock.advance(6 * 60_000)
   expect((await svg())?.alt).toBe(ALT.bell)
   await ui.unmount()
+})
+
+test('/winter sound turns the sounds on: a chime for an answer, a bell for a focus done, a pop for git', async ($, on) => {
+  const clock = mock.clock(on, { now: NOON })
+  const played: string[] = []
+
+  mock.store(on)
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('theme.set', () => ({ value: { isDrawn: true, requestId: 'backdrop' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('tool.call', () => ({ result: 'done' }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('audio.play', (_, e) => {
+    played.push(e.clip.asset ?? '')
+
+    return { value: undefined }
+  })
+
+  const winter = (args: string) =>
+    $.command.run({
+      command: 'winter',
+      args,
+      origin: { kind: 'composer' },
+      presentation: { isFullscreen: false, columns: 80 },
+    })
+  const answer = async (turnId: string) => {
+    await $.turn.start({ text: 'go', turnId })
+    await $.turn.complete({ answer: 'ok', durationMs: 10, isAborted: false, turnId, reason: 'answer' })
+  }
+
+  // Off until asked for.
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await answer('quiet')
+  expect(played).toEqual([])
+  expect((await winter('')).text).toContain('sounds off')
+
+  // On: a chime to say so, then one for each answer; a bell as a focus session ends; a
+  // pop for a commit.
+  expect((await winter('sound on')).text).toContain('no player')
+  expect(played).toEqual(['sounds/chime.wav'])
+  await answer('loud')
+  expect(played.at(-1)).toBe('sounds/chime.wav')
+  await winter('focus 1')
+  await clock.advance(60_000)
+  expect(played.at(-1)).toBe('sounds/bell.wav')
+  await clock.advance(6000)
+  await $.turn.start({ text: 'commit it', turnId: 'git' })
+  await clock.advance(openingMsOf('plain'))
+  await $.tool.call({ tool: 'Bash', command: 'git commit -m x', tool_use_id: 'c1' })
+  expect(played.at(-1)).toBe('sounds/pop.wav')
+
+  // Kept for the next session; off again, and quiet.
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect((await winter('')).text).toContain('sounds on')
+  expect((await winter('sound off')).text).toContain('sounds off')
+  const count = played.length
+
+  await answer('quiet again')
+  expect(played.length).toBe(count)
+  expect((await winter('sound loud')).text).toContain('Usage')
+})
+
+test('left alone a while, the band has a visitor, and the night sky its own', () => {
+  const idle = bandOf('idle')
+
+  // A penguin two minutes in, every four, sliding on the ice and trading snowballs with
+  // the snowman; only in the chase, and never when the band is held still.
+  expect(idle).toContain('class="peng-at"')
+  expect(idle).toContain('animation:peng-at 240s linear infinite')
+  expect(idle).toContain('class="px pball"')
+  expect(idle).toContain('class="px sball"')
+  expect(bandOf('idle', { calm: true })).not.toContain('class="peng-at"')
+  expect(bandOf('working')).not.toContain('class="peng-at"')
+  expect(bandOf('joy')).not.toContain('class="peng-at"')
+
+  // The penguin's way follows the stage's width as the character's does: no keyframe
+  // holds the width.
+  const keyframes = idle.match(/@keyframes (?:peng|pball|sball)[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g) ?? []
+
+  expect(keyframes.length >= 5).toBe(true)
+  expect(keyframes.filter(block => block.includes('var(--w)') || /\d+vw/.test(block))).toEqual([])
+
+  // Shooting stars and the northern lights, on a clear night only.
+  const night = sceneOf({ sky: 'night' })
+
+  expect(night.match(/class="shoot"/g)?.length).toBe(2)
+  expect(night).toContain('class="aurora"')
+  expect(sceneOf({ sky: 'day' })).not.toContain('class="aurora"')
+  expect(sceneOf({ sky: 'night', calm: true })).not.toContain('class="shoot"')
 })
 
 test('the clock gives the sky, the occasion and how late it is', () => {

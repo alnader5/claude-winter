@@ -56,6 +56,7 @@ import {
   CARROT,
   CODE_BLUE,
   COAL,
+  DUST,
   CONFETTI,
   EYE,
   EYES,
@@ -96,7 +97,14 @@ import {
   PARTY_GOLD,
   PARTY_HAT,
   PARTY_PURPLE,
+  PENGUIN,
+  PENGUIN_FEET,
+  PENGUIN_FLAT,
+  PENGUIN_ORANGE,
+  PENGUIN_SLATE,
+  PENGUIN_THROW,
   PLANE,
+  POM,
   RING,
   ROBIN_BACK,
   ROBIN_BEAK,
@@ -142,7 +150,7 @@ import {
   balloonOf,
   pathOf,
 } from './sprite'
-import type { Book, Box, Burst, Glyph, Laptop, Rect, Scope, Screen, Shovel, Sweat, Twinkle } from './sprite'
+import type { Book, Box, Burst, Dust, Glyph, Laptop, Pom, Rect, Scope, Screen, Shovel, Sweat, Twinkle } from './sprite'
 import type { Drift, Snowman } from '../types'
 import type { Occasion } from './time'
 import { FRESH_WORK, MAX_HELPERS, MAX_TREK } from './work'
@@ -224,6 +232,13 @@ const WHIRL_SECONDS: Readonly<Record<Activity, number>> = {
   run: 2,
   web: 2.4,
   wait: 0,
+}
+
+// The body drawn out as it springs up, and squashed as it lands, from its feet.
+const SQUASH: Readonly<Record<Frame['squash'], string>> = {
+  none: '',
+  stretch: ' scale(0.9,1.12)',
+  squash: ' scale(1.14,0.86)',
 }
 
 // How much quicker the spark whirls and its glow beats at each heat.
@@ -320,6 +335,12 @@ export type Frame = {
   // The shovel, dug in or heaved up, and the snow just flung off it.
   shovel: Shovel
   flung: boolean
+  // The finish on each move, worked out from the frames around it: the pom-pom lagging
+  // behind, the body stretched as it springs up and squashed as it lands, and the snow
+  // kicked up about its feet.
+  pom: Pom
+  squash: 'none' | 'stretch' | 'squash'
+  dust: Dust
   // The scarf's end: hanging still, or streaming behind as the character moves.
   scarf: Scarf
   // A puff of breath in the cold.
@@ -364,6 +385,9 @@ export const HOME: Frame = {
   twinkle: 'none',
   shovel: 'none',
   flung: false,
+  pom: 'still',
+  squash: 'none',
+  dust: 'none',
   scarf: 'still',
   breath: 'none',
   pal: 'rest',
@@ -1297,10 +1321,47 @@ export const ENDING_MS: Readonly<Record<Ending, number>> = {
 const SIGN: Readonly<Record<Ending, Say>> = { joy: 'done', puzzled: 'ask', closing: 'none' }
 
 /**
+ * The finish on a run of frames: the pom-pom lags behind the way each frame moves, the
+ * body stretches the frame it springs up and squashes the frame it lands, and snow
+ * flies up about its feet for three frames from the landing.
+ */
+export function polished(frames: readonly Frame[], isLoop: boolean): Frame[] {
+  const count = frames.length
+  const at = (index: number) => (isLoop ? frames[(index + count) % count] : frames[index])
+  const landings = new Set<number>()
+
+  frames.forEach((frame, index) => {
+    const before = index > 0 || isLoop ? at(index - 1) : undefined
+
+    if (before !== undefined && frame.hop === 0 && before.hop > 0) {
+      landings.add(index)
+    }
+  })
+
+  return frames.map((frame, index) => {
+    const before = index > 0 || isLoop ? at(index - 1) : undefined
+    const lift = before === undefined ? 0 : frame.hop - before.hop
+    const dx = paceAt(frames, index, isLoop)
+    const pom: Pom = lift > 0 ? 'low' : lift < 0 ? 'high' : dx > 1e-9 ? 'left' : dx < -1e-9 ? 'right' : 'still'
+    const squash = landings.has(index) ? 'squash' : before !== undefined && before.hop === 0 && frame.hop > 0 ? 'stretch' : 'none'
+    const since = [0, 1, 2].find(back => landings.has((index - back + count) % count) && (isLoop || index - back >= 0))
+    const dust: Dust = since === undefined || frame.hop > 0 ? 'none' : since === 0 ? 'dust1' : 'dust2'
+
+    return { ...frame, pom, squash, dust }
+  })
+}
+
+/**
  * A mood's reel. An ending plays on into the chase, so the band runs on as it should
- * whenever the switch back to the chase comes.
+ * whenever the switch back to the chase comes. Every reel gets its finish.
  */
 export function reelOf(mood: Mood, story: Story = storyOf(), work: Work = FRESH_WORK): Reel {
+  const { intro, loop, poster } = bareReelOf(mood, story, work)
+
+  return { intro: polished(intro, false), loop: polished(loop, true), poster }
+}
+
+function bareReelOf(mood: Mood, story: Story, work: Work): Reel {
   if (mood === 'working') {
     return workingOf(work)
   }
@@ -1928,6 +1989,137 @@ function driftOf(level: Drift, isShoveling: boolean): Layer {
   }
 }
 
+// A long cycle's keyframes from times in seconds: each value held until the next key,
+// or moved there, as the key's timing says.
+type Key = readonly [at: number, value: string, timing?: 'step-end' | 'linear' | 'ease-in' | 'ease-out']
+
+function timelineOf(name: string, cycle: number, keys: readonly Key[]): string {
+  let text = `@keyframes ${name}{`
+
+  for (const [at, value, timing = 'step-end'] of keys) {
+    text += `${Number(((at / cycle) * 100).toFixed(4))}%{${value};animation-timing-function:${timing}}`
+  }
+
+  return `${text}}`
+}
+
+// A visit, when the band has been left to its chase a while: two minutes in, then every
+// four. A little blue penguin waddles in from the far end, belly-slides across the ice,
+// and throws a snowball at the snowman, which throws one back; it ducks, and waddles
+// off the way it came. All of it on a clock of its own, apart from the character's.
+const VISIT_CYCLE = 240
+const VISIT_AT = 120
+
+function visitOf(): Layer {
+  const cycle = VISIT_CYCLE
+  const at = (seconds: number) => VISIT_AT + seconds
+  const place = (of: number, px: number) => `--of:${of};--px:${px}px`
+  const shown = (name: string, spans: readonly (readonly [number, number])[]) =>
+    timelineOf(name, cycle, [
+      [0, 'opacity:0'],
+      ...spans.flatMap(([from, to]): Key[] => [
+        [at(from), 'opacity:1'],
+        [at(to), 'opacity:0'],
+      ]),
+      [cycle, 'opacity:0'],
+    ])
+  const run = `${cycle}s linear infinite`
+  const standing = BAND_HEIGHT - GROUND - 8 * UNIT
+  const path = (rects: readonly Rect[], fill: string, extra = '') => `<path${extra} fill="${fill}" d="${pathOf(rects)}"/>`
+
+  // Its way: in to the ice's far end, a slide across it, a stand to throw and duck, and
+  // off again the way it came.
+  const way = timelineOf('peng-at', cycle, [
+    [0, place(1, 8)],
+    [at(0), place(1, 8), 'linear'],
+    [at(4.5), place(0.74, 4)],
+    [at(5), place(0.74, 4), 'linear'],
+    [at(6.5), place(0.6, 0)],
+    [at(11.6), place(0.6, 0), 'linear'],
+    [at(18), place(1, 8)],
+    [cycle, place(1, 8)],
+  ])
+  // Facing left on the way in, right on the way out.
+  const facing = timelineOf('peng-face', cycle, [
+    [0, 'transform:scaleX(1)'],
+    [at(11.1), 'transform:scaleX(-1)'],
+    [cycle, 'transform:scaleX(-1)'],
+  ])
+  // Its snowball at the snowman's head, and the snowman's back at it, over its head as
+  // it ducks, into the snow behind it.
+  const throwOf = (name: string, from: string, to: string, flight: readonly [number, number], heights: readonly [number, number, number]) =>
+    timelineOf(`${name}-x`, cycle, [
+      [0, from],
+      [at(flight[0]), from, 'linear'],
+      [at(flight[1]), to],
+      [cycle, to],
+    ]) +
+    timelineOf(`${name}-y`, cycle, [
+      [0, `transform:translateY(${heights[0]}px)`],
+      [at(flight[0]), `transform:translateY(${heights[0]}px)`, 'ease-out'],
+      [at((flight[0] + flight[1]) / 2), `transform:translateY(${heights[1]}px)`, 'ease-in'],
+      [at(flight[1]), `transform:translateY(${heights[2]}px)`],
+      [cycle, `transform:translateY(${heights[2]}px)`],
+    ])
+  const ball = (name: string) =>
+    `<g class="${name}-x"><g class="${name}-y">` +
+    `<g class="px ${name}">${path(SNOWBALL.ball, SNOW_WHITE)}${path(SNOWBALL.shade, SNOW_SHADE)}</g></g></g>`
+  const bits = (name: string, x: string, y: number) =>
+    `<g class="px" style="transform:translate(${x},${y}px)">${path(KICK.snow3, FLAKE_BLUE, ` class="${name}"`)}</g>`
+
+  const svg =
+    `<g class="peng-at"><g class="peng-face">` +
+    `<g class="px peng-walk">${path(PENGUIN.back, PENGUIN_SLATE)}${path(PENGUIN.belly, SNOW_WHITE)}${path(PENGUIN.eye, EYE)}` +
+    `${path(PENGUIN.beak, PENGUIN_ORANGE)}${path(PENGUIN_FEET.a, PENGUIN_ORANGE, ' class="peng-a"')}${path(PENGUIN_FEET.b, PENGUIN_ORANGE, ' class="peng-b"')}</g>` +
+    `<g class="px peng-flat">${path(PENGUIN_FLAT.back, PENGUIN_SLATE)}${path(PENGUIN_FLAT.belly, SNOW_WHITE)}${path(PENGUIN_FLAT.eye, EYE)}${path(PENGUIN_FLAT.beak, PENGUIN_ORANGE)}</g>` +
+    `<g class="px peng-throw">${path(PENGUIN_THROW.back, PENGUIN_SLATE)}${path(PENGUIN.belly, SNOW_WHITE)}${path(PENGUIN.eye, EYE)}` +
+    `${path(PENGUIN.beak, PENGUIN_ORANGE)}${path(PENGUIN_FEET.a, PENGUIN_ORANGE)}${path(PENGUIN_THROW.ball, SNOW_WHITE)}</g>` +
+    '</g></g>' +
+    ball('pball') +
+    ball('sball') +
+    bits('hit', cssOf(placeAt(6, 0.33)), TOP + 4) +
+    bits('miss', cssOf(placeAt(0, 0.66)), BAND_HEIGHT - GROUND - 6)
+
+  const css = [
+    `.peng-at{${place(1, 8)};transform:translate(${ON_GRID},${standing}px);animation:peng-at ${run}}`,
+    way,
+    `.peng-face{transform-box:fill-box;transform-origin:50% 50%;animation:peng-face ${run}}`,
+    facing,
+    `.peng-walk{opacity:0;animation:peng-walk ${run}}`,
+    shown('peng-walk', [
+      [0, 4.5],
+      [6.5, 7.5],
+      [8, 10.1],
+      [11.1, 18],
+    ]),
+    `.peng-flat{opacity:0;animation:peng-flat ${run}}`,
+    shown('peng-flat', [
+      [4.5, 6.5],
+      [10.1, 11.1],
+    ]),
+    `.peng-throw{opacity:0;animation:peng-throw ${run}}`,
+    shown('peng-throw', [[7.5, 8]]),
+    '.peng-a,.peng-b{animation:peng-step 0.4s step-end infinite}.peng-b{animation-delay:-0.2s}',
+    '@keyframes peng-step{0%{opacity:1}50%{opacity:0}}',
+    `.pball-x{${place(0.6, -2)};transform:translateX(${ON_GRID});animation:pball-x ${run}}`,
+    `.pball-y{transform:translateY(20px);animation:pball-y ${run}}`,
+    throwOf('pball', place(0.6, -2), place(0.33, 12), [7.6, 8.6], [20, 6, 16]),
+    `.pball{opacity:0;animation:pball ${run}}`,
+    shown('pball', [[7.6, 8.6]]),
+    `.sball-x{${place(0.33, 18)};transform:translateX(${ON_GRID});animation:sball-x ${run}}`,
+    `.sball-y{transform:translateY(18px);animation:sball-y ${run}}`,
+    throwOf('sball', place(0.33, 18), place(0.66, 2), [9.6, 10.8], [18, 4, 30]),
+    `.sball{opacity:0;animation:sball ${run}}`,
+    shown('sball', [[9.6, 10.8]]),
+    `.hit{opacity:0;animation:hit ${run}}`,
+    shown('hit', [[8.6, 9.1]]),
+    `.miss{opacity:0;animation:miss ${run}}`,
+    shown('miss', [[10.8, 11.3]]),
+  ].join('')
+
+  return { svg, css }
+}
+
 // New Year's confetti: pieces falling the height of the band in pixel steps, each on a
 // loop of its own and drifting a little to one side. Held still, they are out of sight
 // over the band.
@@ -2022,7 +2214,8 @@ function textOf(css: string): string {
 
 // Everything that moves: what reduced motion holds still, and /winter calm too.
 const MOVING =
-  '.m,.ray,.spark-x,.spark-hop,.spark-pose,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint,.confetti,.lantern-lit,.helper,.helper-a,.helper-b,.rise,.rocket,.firework,.bell,.ring-near,.ring-far,.plant,.fly1,.fly2,.drift'
+  '.m,.ray,.spark-x,.spark-hop,.spark-pose,.spark-tilt,.spark-wind,.spark-spin,.glow,.print,.ember,.glint,.confetti,.lantern-lit,.helper,.helper-a,.helper-b,.rise,.rocket,.firework,.bell,.ring-near,.ring-far,.plant,.fly1,.fly2,.drift,' +
+  '.peng-at,.peng-face,.peng-walk,.peng-flat,.peng-throw,.peng-a,.peng-b,.pball-x,.pball-y,.pball,.sball-x,.sball-y,.sball,.hit,.miss'
 
 const STILL = `:is(${MOVING}){animation:none!important}`
 
@@ -2132,6 +2325,8 @@ export function bandOf(
   const arms = layerOf('arms', ARMS, frame => frame.arms, reel, ORANGE)
   const eyes = layerOf('eyes', EYES, frame => frame.eyes, reel, EYE)
   const tail = layerOf('tail', SCARF_TAIL, frame => frame.scarf, reel, KNIT_RED)
+  const pom = layerOf('pom', POM, frame => frame.pom, reel, KNIT_PINK)
+  const dust = layerOf('dust', DUST, frame => frame.dust, reel, FLAKE_BLUE)
   const tailStripe = layerOf('stripe', SCARF_TAIL_STRIPE, frame => frame.scarf, reel, STRIPE)
   const breath = layerOf('breath', BREATH, frame => frame.breath, reel, BREATH_GRAY)
   const words = layerOf(
@@ -2251,6 +2446,8 @@ export function bandOf(
   const fireworks = mood === 'joy' && grand ? fireworksOf() : { svg: '', css: '' }
   // The bell at the end of a focus session.
   const bell = mood === 'bell' ? bellOf() : { svg: '', css: '' }
+  // Now and then, left to its chase a while, a visitor.
+  const visit = mood === 'idle' && !calm ? visitOf() : { svg: '', css: '' }
   // The snow drifted up as the context fills; shoveled away while it is compacted.
   const drifted = driftOf(drift, mood === 'shovel')
   // The shovel, its blade, the load on it and the snow flung off.
@@ -2285,10 +2482,10 @@ export function bandOf(
     '.hidden{opacity:0}',
     '.px,.print,.ember{shape-rendering:crispEdges}',
     `.walker{${varsOf(poster.x)};transform:translate(${ON_GRID},${TOP}px);animation-name:${namesOf('walker', reel)}}`,
-    `.jumper{transform:translateY(${-poster.hop}px);animation-name:${namesOf('jumper', reel)}}`,
+    `.jumper{transform:translateY(${-poster.hop}px);transform-box:fill-box;transform-origin:50% 100%;animation-name:${namesOf('jumper', reel)}}`,
     `.body{transform:translateY(${poster.crouch ? UNIT : 0}px);animation-name:${namesOf('body', reel)}}`,
     walkerOf(reel),
-    tracksOf('jumper', reel, frame => `transform:translateY(${-frame.hop}px)`),
+    tracksOf('jumper', reel, frame => `transform:translateY(${-frame.hop}px)${SQUASH[frame.squash]}`),
     tracksOf('body', reel, frame => `transform:translateY(${frame.crouch ? UNIT : 0}px)`),
     hasFlake
       ? `.flake-at{${placeOf(poster.flake)};animation-name:${namesOf('flake-at', reel)}}` +
@@ -2314,6 +2511,8 @@ export function bandOf(
     eyes.css,
     tail.css,
     tailStripe.css,
+    occasion === 'newyear' ? '' : pom.css,
+    dust.css,
     breath.css,
     words.css,
     love.css,
@@ -2348,6 +2547,7 @@ export function bandOf(
     rising.css,
     fireworks.css,
     bell.css,
+    visit.css,
     flags.css,
     drifted.css,
     ...shovel.map(layer => layer.css),
@@ -2421,7 +2621,7 @@ export function bandOf(
   const hat =
     occasion === 'newyear'
       ? `<path fill="${PARTY_PURPLE}" d="${pathOf(PARTY_HAT.cone)}"/><path fill="${PARTY_GOLD}" d="${pathOf(PARTY_HAT.stripes)}"/>`
-      : `<path fill="${KNIT_RED}" d="${pathOf(HAT.crown)}"/><path fill="${KNIT_PINK}" d="${pathOf([...HAT.cuff, ...HAT.pom])}"/>`
+      : `<path fill="${KNIT_RED}" d="${pathOf(HAT.crown)}"/><path fill="${KNIT_PINK}" d="${pathOf(HAT.cuff)}"/>${pom.svg}`
   const clothes =
     hat + `<path fill="${KNIT_RED}" d="${pathOf(SCARF_WRAP)}"/>` + `<path fill="${STRIPE}" d="${pathOf(SCARF_STRIPES)}"/>`
 
@@ -2435,12 +2635,12 @@ export function bandOf(
 ${textOf(css)}
 </style>${defs}
 ${ground}${marks}${drifted.svg}
-${flags.svg === '' ? '' : `<g class="flags">${flags.svg}</g>`}${snowmanSvg}${lantern.svg}
+${flags.svg === '' ? '' : `<g class="flags">${flags.svg}</g>`}${snowmanSvg}${lantern.svg}${visit.svg}
 <g class="m walker px" fill-opacity="0.22">${shadows.svg}</g>
 ${embers}
 <g class="spark-x"><g class="spark-hop"><g transform="translate(${SPARK_BOX / 2} ${SPARK_CENTER_Y})">${glow}<g class="spark-pose"><g class="spark-tilt"><g class="spark-wind"><g class="spark-spin">${raysOf(mood === 'focus' ? focus : undefined)}</g></g></g></g><g class="px">${sneeze.svg}${kick.svg}${rising.svg}${fireworks.svg}</g></g></g></g>
 ${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}${confetti.svg}${bell.svg}${helpers.svg}
-<g class="m walker px">${answer.zones}<g class="poke"><g class="m jumper">${legs.svg}<g class="m body">${shovel.map(layer => layer.svg).join('')}<path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${blush.svg}${sweat.svg}${gitFlag.map(layer => layer.svg).join('')}${scope.map(layer => layer.svg).join('')}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${snores.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}${props.map(layer => layer.svg).join('')}${note.map(layer => layer.svg).join('')}</g>
+<g class="m walker px">${answer.zones}<g class="poke"><g class="m jumper">${legs.svg}<g class="m body">${shovel.map(layer => layer.svg).join('')}<path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${blush.svg}${sweat.svg}${gitFlag.map(layer => layer.svg).join('')}${scope.map(layer => layer.svg).join('')}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${snores.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}${props.map(layer => layer.svg).join('')}${note.map(layer => layer.svg).join('')}${dust.svg}</g>
 ${hasPlane ? `<g class="m plane-at px">${plane.map(layer => layer.svg).join('')}</g>` : ''}${hasBall ? `<g class="m ball-at px">${snowball.map(layer => layer.svg).join('')}</g>` : ''}${twinkle.svg === '' ? '' : `<g class="px" transform="translate(${TWINKLE_AT.x} ${TWINKLE_AT.y})">${twinkle.svg}</g>`}${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}
 </svg>`
 }

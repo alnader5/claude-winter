@@ -56,6 +56,34 @@ export const HAT = {
   pom: [[14, -2, 2, 1]],
 } as const satisfies Record<string, readonly Rect[]>
 
+// The pom-pom on its slouched crown, lagging a pixel behind each move: behind as it
+// goes right or left, down as it springs up, up as it falls.
+export const POM = {
+  still: [[14, -2, 2, 1]],
+  left: [[13, -2, 2, 1]],
+  right: [[15, -2, 2, 1]],
+  low: [[14, -1, 2, 1]],
+  high: [[14, -3, 2, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export type Pom = keyof typeof POM
+
+// Snow kicked up about its feet as it lands, then spreading.
+export const DUST = {
+  dust1: [
+    [2, 9, 1, 1],
+    [15, 9, 1, 1],
+  ],
+  dust2: [
+    [0, 8, 1, 1],
+    [17, 8, 1, 1],
+    [1, 9, 1, 1],
+    [16, 9, 1, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+export type Dust = keyof typeof DUST | 'none'
+
 // The scarf goes round under the eyes, below where the laptop's lid comes up to.
 export const SCARF_WRAP: readonly Rect[] = [[3, 5, 12, 1]]
 export const SCARF_STRIPES: readonly Rect[] = [
@@ -688,6 +716,54 @@ export const FLUNG = {
 } as const satisfies Record<string, readonly Rect[]>
 
 export type Shovel = keyof typeof SHOVEL | 'none'
+
+// A little blue penguin, facing left: its slate back and white front, a dark eye, an
+// orange beak and feet that take turns as it waddles; flat on its belly to slide on
+// the ice or duck; a flipper up to throw.
+export const PENGUIN_SLATE = '#3d5a73'
+export const PENGUIN_ORANGE = '#f2a33a'
+export const PENGUIN = {
+  back: [
+    [2, 0, 3, 1],
+    [1, 1, 5, 6],
+    [0, 4, 1, 2],
+    [6, 4, 1, 2],
+  ],
+  belly: [[2, 2, 3, 5]],
+  eye: [[2, 1, 1, 1]],
+  beak: [[0, 2, 1, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const PENGUIN_FEET = {
+  a: [
+    [1, 7, 2, 1],
+    [4, 7, 1, 1],
+  ],
+  b: [
+    [2, 7, 1, 1],
+    [4, 7, 2, 1],
+  ],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const PENGUIN_FLAT = {
+  back: [
+    [1, 5, 6, 1],
+    [0, 6, 8, 2],
+  ],
+  belly: [[1, 7, 6, 1]],
+  eye: [[1, 6, 1, 1]],
+  beak: [[-1, 6, 1, 1]],
+} as const satisfies Record<string, readonly Rect[]>
+
+export const PENGUIN_THROW = {
+  back: [
+    [2, 0, 3, 1],
+    [1, 1, 5, 6],
+    [0, 1, 1, 2],
+    [6, 4, 1, 2],
+  ],
+  ball: [[0, -1, 1, 1]],
+} as const satisfies Record<string, readonly Rect[]>
 
 // The snowman, on the grid of the character's own size and standing on the same snow:
 // a top hat, a head with coal eyes and a carrot pointing right, a round body with two

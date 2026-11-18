@@ -1,6 +1,8 @@
 // The backdrop: snow falling slowly over low hills, with a few pines in the corners,
 // under a sky that follows the clock: a moon and twinkling stars at night, a low sun at
-// dawn and at dusk. In Ramadan a crescent hangs in the sky, bright at night.
+// dawn and at dusk. In Ramadan a crescent hangs in the sky, bright at night. Now and
+// then on a clear night a star shoots across it, and more rarely the northern lights
+// ripple over it a while.
 //
 // A hook cannot ask which mode the app is in, so the drawing has to read in both.
 // Its own colors are mid tones that show on the snowy page and on the night sky
@@ -96,15 +98,44 @@ function crescentOf(r: number, opacity: number): string {
   return `<path fill="#e9c96b" fill-opacity="${opacity}" d="M${x} ${y - r}A${r} ${r} 0 0 0 ${x} ${y + r}A${r * 1.25} ${r * 1.25} 0 0 1 ${x} ${y - r}Z"/>`
 }
 
+// Two shooting stars, each on a beat of its own: where it starts, how often it comes,
+// and how long into the night it first does.
+const SHOOTING: readonly (readonly [number, number, number, number])[] = [
+  [1250, 260, 97, 40],
+  [720, 300, 151, 100],
+]
+
+// The northern lights: two ribbons over the top of the sky, swaying while they show,
+// for under a minute every seven, the first after two and a half.
+const AURORA =
+  '<g class="aurora">' +
+  '<path fill="url(#aurora)" d="M-100 140 C 250 60 500 220 800 130 C 1100 40 1350 200 1700 110 L 1700 330 C 1350 420 1100 260 800 350 C 500 440 250 280 -100 360 Z"/>' +
+  '<path fill="url(#aurora-violet)" d="M-100 200 C 300 120 600 280 900 190 C 1200 100 1400 250 1700 170 L 1700 300 C 1400 380 1200 240 900 320 C 600 400 300 250 -100 330 Z"/>' +
+  '</g>'
+
+// What the night sky brings now and then; nothing when the person asks for calm.
+function visitorsOf(calm: boolean): string {
+  if (calm) {
+    return ''
+  }
+  const stars = SHOOTING.map(
+    ([x, y, every, first]) =>
+      `<g class="shoot" style="--x:${x}px;--y:${y}px;animation-duration:${every}s;animation-delay:${first}s">` +
+      '<line x1="0" y1="0" x2="80" y2="-40" stroke="url(#tail)" stroke-width="3" stroke-linecap="round"/></g>',
+  ).join('')
+
+  return AURORA + stars
+}
+
 // What the sky holds, drawn behind the hills so a low sun sinks into them.
-function skyOf(sky: Sky, occasion: Occasion): string {
+function skyOf(sky: Sky, occasion: Occasion, calm: boolean): string {
   const isRamadan = occasion === 'ramadan'
   const halo = `<circle cx="${MOON.x}" cy="${MOON.y}" r="96" fill="url(#halo)"/>`
 
   if (sky === 'night') {
     const moon = isRamadan ? crescentOf(44, 1) : `<circle cx="${MOON.x}" cy="${MOON.y}" r="36" fill="#f2e6b6"/>`
 
-    return `<rect width="${WIDTH}" height="${HEIGHT}" fill="url(#night)"/>${starsOf()}${halo}${moon}`
+    return `<rect width="${WIDTH}" height="${HEIGHT}" fill="url(#night)"/>${visitorsOf(calm)}${starsOf()}${halo}${moon}`
   }
   // By day the crescent of Ramadan stays, faint.
   const hilal = isRamadan ? crescentOf(44, 0.5) : ''
@@ -146,6 +177,15 @@ export function sceneOf({
   .hill-front { fill: #b9c9da; opacity: 0.4; }
   .pine { fill: #5f7d92; opacity: 0.34; }
   .star { fill: #d2b960; opacity: 0.8; animation-name: twinkle; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
+  .shoot { opacity: 0; transform: translate(var(--x), var(--y)); animation-name: shoot; animation-timing-function: linear; animation-iteration-count: infinite; }
+  .tail-head { stop-color: #c9a53f; stop-opacity: 0.9; }
+  .tail-end { stop-color: #c9a53f; stop-opacity: 0; }
+  .aurora { --glow: 0.45; opacity: 0; animation: aurora 420s ease-in-out 150s infinite; }
+  @media (prefers-color-scheme: dark) {
+    .tail-head { stop-color: #fff8dd; }
+    .tail-end { stop-color: #fff8dd; }
+    .aurora { --glow: 0.85; }
+  }
   @media (prefers-color-scheme: dark) {
     .flake { fill: #eef4fb; stroke: #6f8caa; stroke-width: 0.7; stroke-opacity: 0.6; }
     .hill-back { fill: #2f4258; opacity: 0.38; }
@@ -161,6 +201,20 @@ export function sceneOf({
     0%, 100% { opacity: 0.3; }
     50% { opacity: 1; }
   }
+  @keyframes shoot {
+    0% { opacity: 0; transform: translate(var(--x), var(--y)); }
+    0.2% { opacity: 1; }
+    1.1% { opacity: 1; transform: translate(calc(var(--x) - 420px), calc(var(--y) + 210px)); }
+    1.4%, 100% { opacity: 0; transform: translate(calc(var(--x) - 470px), calc(var(--y) + 235px)); }
+  }
+  @keyframes aurora {
+    0% { opacity: 0; transform: translateX(0) skewX(0deg); }
+    2% { opacity: var(--glow); }
+    5% { transform: translateX(-30px) skewX(-4deg); }
+    8% { transform: translateX(20px) skewX(3deg); }
+    10% { opacity: var(--glow); }
+    12%, 100% { opacity: 0; transform: translateX(0) skewX(0deg); }
+  }
   @media (max-aspect-ratio: 3/4) {
     .pines-left { transform: translateX(520px); }
     .pines-right { transform: translateX(-480px); }
@@ -168,6 +222,7 @@ export function sceneOf({
   @media (prefers-reduced-motion: reduce) {
     .flake { animation: none; transform: translate(0, var(--rest)); }
     .star { animation: none; }
+    .shoot, .aurora { animation: none; }
   }
 ${still}</style>
 <defs>
@@ -176,8 +231,11 @@ ${still}</style>
   <linearGradient id="dusk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a6bb3" stop-opacity="0.16"/><stop offset="0.5" stop-color="#8a6bb3" stop-opacity="0"/><stop offset="0.92" stop-color="#f08f6a" stop-opacity="0.38"/></linearGradient>
   <radialGradient id="halo"><stop offset="0.3" stop-color="#f2e6b6" stop-opacity="0.45"/><stop offset="1" stop-color="#f2e6b6" stop-opacity="0"/></radialGradient>
   <radialGradient id="sun"><stop offset="0.4" stop-color="#f9cf73" stop-opacity="0.5"/><stop offset="1" stop-color="#f9cf73" stop-opacity="0"/></radialGradient>
+  <linearGradient id="tail" x1="0" y1="0" x2="1" y2="0"><stop class="tail-head" offset="0"/><stop class="tail-end" offset="1"/></linearGradient>
+  <linearGradient id="aurora" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#58e0a0" stop-opacity="0"/><stop offset="0.4" stop-color="#58e0a0" stop-opacity="0.55"/><stop offset="0.7" stop-color="#4cc3d9" stop-opacity="0.3"/><stop offset="1" stop-color="#4cc3d9" stop-opacity="0"/></linearGradient>
+  <linearGradient id="aurora-violet" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9b7be0" stop-opacity="0"/><stop offset="0.5" stop-color="#9b7be0" stop-opacity="0.35"/><stop offset="1" stop-color="#58e0a0" stop-opacity="0"/></linearGradient>
 </defs>
-${skyOf(sky, occasion)}
+${skyOf(sky, occasion, calm)}
 <path class="hill-back" d="M0 900 C 220 820 420 860 640 910 C 900 965 1150 850 1600 890 L 1600 1000 L 0 1000 Z"/>
 <path class="hill-front" d="M0 950 C 260 890 480 940 760 965 C 1080 990 1320 920 1600 945 L 1600 1000 L 0 1000 Z"/>
 <g class="pine pines-left">

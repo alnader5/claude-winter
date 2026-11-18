@@ -23,6 +23,8 @@ A winter look for Claude Code: snowy-day colors in light mode and winter-night c
 
 - **The snow is a gauge of the conversation's context**: as the context fills, snow drifts up in banks along the band, a step deeper at 30%, 50%, 70% and 85%. When the conversation is compacted, the character takes up a shovel and clears it away.
 - **A snowman built over days**: on the first day it is a snowball; each day you use Claude Code adds a part (its head, its face, its carrot, its stick arms that wave back, its top hat), and the answers add gifts (a scarf at 20, a broom at 60, a gold star on its hat at 150). It is kept across sessions.
+- **Every move has its finish**: the pom-pom on the character's hat lags behind its moves, its body stretches as it springs up and squashes as it lands, and snow flies up about its feet.
+- **Left alone a while, the band has a visitor**: two minutes into the chase, and every four minutes after, a little blue penguin waddles in from the far end, belly-slides across the ice and trades snowballs with the snowman before it waddles off. On a clear night a star shoots across the sky now and then, and every seven minutes or so the northern lights ripple over it for a while.
 - **Point at the band** and everything holds still while the character waves, its eyes on your pointer: to the left of it, to the right, or right at you over its face. **Click it** and the character jumps, a heart over its head.
 - **Late at night**, after midnight with nothing asked for a few minutes, the character settles down in the snow and dozes, z's over its head, until the next piece of work wakes it.
 - **The sky follows your clock**: a moon and twinkling stars at night, a low sun at dawn and at dusk.
@@ -36,6 +38,7 @@ The snowfall and the band are drawn in the Claude desktop app and the mobile app
 - `/winter off` hides the band and holds the snow still.
 - `/winter on` sets everything moving again.
 - `/winter focus` starts a focus session of 25 minutes, or `/winter focus 50` of 50 (up to 180). The character sits still in the snow with its eyes shut, and the spark's eleven rays go out one by one until the time is up. Then a bell rings over the spark, relit, and the character stands and stretches. Claude's work still shows on the band while it runs, and the session carries on after. `/winter focus stop` ends it early.
+- `/winter sound on` plays a soft chime when Claude answers, a bell when a focus session ends, and a pop for a commit or a push; `/winter sound off` stops them. They are off until you turn them on. Claude Code plays a mod's sounds with the system's own player, which only macOS has, so on Linux and Windows they stay silent.
 - `/winter` on its own says how it is set, and how long a focus session has left.
 
 The setting is kept for your next sessions. The character moves a whole frame at a time on a pixel grid, the band holds still where the system asks for reduced motion, and each mood has its own description for screen readers.
@@ -68,6 +71,8 @@ To take a newer version later, run `claude plugin update winter` and start a new
 
 ويمتد الشريط بعرض المساحة كلها حتى 1200 بكسل، فيتوزع الطريق ورجل الثلج والجليد على العرض، وتقطعه الشخصية أسرع كلما اتسع.
 
+ولكل حركة لمستها: تتأخر كرة القبعة خلف حركة الشخصية، ويتمطّى جسمها حين تقفز وينضغط حين تهبط ويتطاير الثلج حول قدميها. وإن تُرك الشريط لحاله دقيقتين جاءه زائر: بطريق أزرق صغير يتهادى ثم ينزلق على بطنه فوق الجليد ويتراشق بكرات الثلج مع رجل الثلج ثم يمضي، وفي الليالي الصافية يعبر السماءَ شهابٌ بين حين وآخر، ويتماوج الشفق القطبي فوقها كل سبع دقائق تقريباً. والأمر `/winter sound on` يشغّل الأصوات: رنّة حين يجيب Claude، وجرس عند نهاية جلسة التركيز، ونقرة لكل commit أو push (يشغّلها Claude Code على macOS فقط؛ أما على Linux وWindows فتبقى صامتة).
+
 مرّر الفأرة فوق الشريط فيتوقف كل شيء وتلوّح الشخصية وعيناها تتبعان مؤشرك يميناً أو يساراً أو تنظر إليك مباشرة، وانقر عليه فتقفز ويظهر فوقها قلب. والأمر `/winter focus` يبدأ جلسة تركيز مدتها ٢٥ دقيقة (أو `/winter focus 50` لخمسين دقيقة، حتى ١٨٠): تجلس الشخصية في الثلج مغمضة العينين وتنطفئ أشعة الشرارة الإحدى عشرة واحداً تلو الآخر، ثم يرنّ جرس فوق الشرارة وتنهض الشخصية وتتمطّى، و`/winter focus stop` ينهيها مبكراً. والأمر `/winter calm` يوقف الحركة، و`/winter off` يخفي الشريط، و`/winter on` يعيد الحركة، ويبقى اختيارك محفوظاً لجلساتك القادمة.
 
 وبعد منتصف الليل، إن لم تطلب شيئاً لبضع دقائق، تجلس الشخصية في الثلج وتغفو وفوقها «Zzz» حتى يوقظها العمل التالي. والسماء تتبع ساعتك: قمر ونجوم ليلاً، وشمس منخفضة عند الشروق والغروب. وفي رأس السنة تلبس الشخصية قبعة احتفال تحت قصاصات ملونة، وفي رمضان يتدلى فانوس فوق الشريط ويظهر هلال في السماء.
@@ -88,6 +93,7 @@ To take a newer version later, run `claude plugin update winter` and start a new
 - `hooks/tone.ts`: how a prompt sounds (thanks, a hurry, a question), read in English and in Arabic.
 - `hooks/git.ts`: which shell commands commit or push, for the band to cheer.
 - `hooks/snowman.ts`: the snowman's build over days, kept in the mod's store.
+- `sounds/`: the chime, the bell and the pop, made from sine waves by `node tools/make-sounds.mjs`.
 - `hooks/scene.ts`: the snowfall backdrop and its skies.
 - `hooks/time.ts`: the sky, the occasion and the lateness, read from this machine's clock; Ramadan by the Umm al-Qura calendar.
 - `hooks/palette.ts`: the winter colors, generated by `node tools/make-palette.mjs`.
