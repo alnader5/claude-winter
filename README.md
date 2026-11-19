@@ -38,7 +38,12 @@ The snowfall and the band are drawn in the Claude desktop app and the mobile app
 - `/winter off` hides the band and holds the snow still.
 - `/winter on` sets everything moving again.
 - `/winter focus` starts a focus session of 25 minutes, or `/winter focus 50` of 50 (up to 180). The character sits still in the snow with its eyes shut, and the spark's eleven rays go out one by one until the time is up. Then a bell rings over the spark, relit, and the character stands and stretches. Claude's work still shows on the band while it runs, and the session carries on after. `/winter focus stop` ends it early.
-- `/winter sound on` plays a soft chime when Claude answers, a bell when a focus session ends, and a pop for a commit or a push; `/winter sound off` stops them. They are off until you turn them on, and the chime that answers `/winter sound on` says which player played it. The mod plays them with the system's own player, the first that runs: `afplay` on macOS; PowerShell's SoundPlayer, part of Windows; on Linux PipeWire's `pw-play`, PulseAudio's `paplay` or ALSA's `aplay`, else `ffplay`, `mpv`, `play` or `canberra-gtk-play`.
+- `/winter sound on` plays a soft chime when Claude answers, a bell when a focus session ends, and a pop for a commit or a push; `/winter sound off` stops them. They are off until you turn them on, and the chime that answers `/winter sound on` says which player played it. They play on macOS, Windows and Linux alike, with the system's own player, the first that runs, and at the same loudness with each:
+  - macOS: `afplay`, part of macOS.
+  - Windows: .NET's SoundPlayer through PowerShell, both part of Windows, with no window. The sound's path reaches it in a variable, so a folder name with any character in it plays.
+  - Linux: PipeWire's `pw-play`, PulseAudio's `paplay` or ALSA's `aplay`, which between them cover every desktop distribution; else `ffplay`, `mpv`, `gst-play-1.0`, `cvlc`, `play` or `canberra-gtk-play`. A Claude Code started outside the desktop session is pointed at the user's own sound server.
+  - WSL: a Linux player if one is installed, else Windows' own, across the border.
+  - With no player at all, the mod says what would play them, and looks again every ten minutes and at the next `/winter sound on`.
 - `/winter` on its own says how it is set, and how long a focus session has left.
 
 The setting is kept for your next sessions. The character moves a whole frame at a time on a pixel grid, the band holds still where the system asks for reduced motion, and each mood has its own description for screen readers.
@@ -71,7 +76,7 @@ To take a newer version later, run `claude plugin update winter` and start a new
 
 ويمتد الشريط بعرض المساحة كلها حتى 1200 بكسل، فيتوزع الطريق ورجل الثلج والجليد على العرض، وتقطعه الشخصية أسرع كلما اتسع.
 
-ولكل حركة لمستها: تتأخر كرة القبعة خلف حركة الشخصية، ويتمطّى جسمها حين تقفز وينضغط حين تهبط ويتطاير الثلج حول قدميها. وإن تُرك الشريط لحاله دقيقتين جاءه زائر: بطريق أزرق صغير يتهادى ثم ينزلق على بطنه فوق الجليد ويتراشق بكرات الثلج مع رجل الثلج ثم يمضي، وفي الليالي الصافية يعبر السماءَ شهابٌ بين حين وآخر، ويتماوج الشفق القطبي فوقها كل سبع دقائق تقريباً. والأمر `/winter sound on` يشغّل الأصوات: رنّة حين يجيب Claude، وجرس عند نهاية جلسة التركيز، ونقرة لكل commit أو push، على الأنظمة الثلاثة بمشغّل النظام نفسه: `afplay` على macOS، وSoundPlayer عبر PowerShell المدمج في Windows، وعلى Linux ‏`pw-play` أو `paplay` أو `aplay` (أو `ffplay` و`mpv` إن لم توجد). وتخبرك رسالة الأمر بالمشغّل الذي عزف الرنّة.
+ولكل حركة لمستها: تتأخر كرة القبعة خلف حركة الشخصية، ويتمطّى جسمها حين تقفز وينضغط حين تهبط ويتطاير الثلج حول قدميها. وإن تُرك الشريط لحاله دقيقتين جاءه زائر: بطريق أزرق صغير يتهادى ثم ينزلق على بطنه فوق الجليد ويتراشق بكرات الثلج مع رجل الثلج ثم يمضي، وفي الليالي الصافية يعبر السماءَ شهابٌ بين حين وآخر، ويتماوج الشفق القطبي فوقها كل سبع دقائق تقريباً. والأمر `/winter sound on` يشغّل الأصوات: رنّة حين يجيب Claude، وجرس عند نهاية جلسة التركيز، ونقرة لكل commit أو push، على الأنظمة كلها بمشغّل النظام نفسه وبالارتفاع ذاته: `afplay` على macOS، وSoundPlayer عبر PowerShell المدمج في Windows دون أي نافذة، وعلى Linux ‏`pw-play` أو `paplay` أو `aplay` التي تغطي توزيعات سطح المكتب كلها (ثم `ffplay` و`mpv` و`gst-play-1.0` وغيرها إن لم توجد)، وفي WSL مشغّل Linux إن وُجد وإلا مشغّل Windows نفسه. وتخبرك رسالة الأمر بالمشغّل الذي عزف الرنّة، وإن لم يوجد أي مشغّل أخبرتك بما يلزم وأعاد المود البحث كل عشر دقائق.
 
 مرّر الفأرة فوق الشريط فيتوقف كل شيء وتلوّح الشخصية وعيناها تتبعان مؤشرك يميناً أو يساراً أو تنظر إليك مباشرة، وانقر عليه فتقفز ويظهر فوقها قلب. والأمر `/winter focus` يبدأ جلسة تركيز مدتها ٢٥ دقيقة (أو `/winter focus 50` لخمسين دقيقة، حتى ١٨٠): تجلس الشخصية في الثلج مغمضة العينين وتنطفئ أشعة الشرارة الإحدى عشرة واحداً تلو الآخر، ثم يرنّ جرس فوق الشرارة وتنهض الشخصية وتتمطّى، و`/winter focus stop` ينهيها مبكراً. والأمر `/winter calm` يوقف الحركة، و`/winter off` يخفي الشريط، و`/winter on` يعيد الحركة، ويبقى اختيارك محفوظاً لجلساتك القادمة.
 
@@ -93,8 +98,8 @@ To take a newer version later, run `claude plugin update winter` and start a new
 - `hooks/tone.ts`: how a prompt sounds (thanks, a hurry, a question), read in English and in Arabic.
 - `hooks/git.ts`: which shell commands commit or push, for the band to cheer.
 - `hooks/snowman.ts`: the snowman's build over days, kept in the mod's store.
-- `sounds/`: the chime, the bell and the pop, made from sine waves by `node tools/make-sounds.mjs`.
-- `hooks/sound.ts`: which player plays them on each system, found by trying each in turn.
+- `sounds/`: the chime, the bell and the pop, made from sine waves by `node tools/make-sounds.mjs` as 16-bit mono WAV, the one format every system's player reads, at the loudness they play at.
+- `hooks/sound.ts`: which player plays them on each system, found by trying each in turn, with no shell.
 - `hooks/scene.ts`: the snowfall backdrop and its skies.
 - `hooks/time.ts`: the sky, the occasion and the lateness, read from this machine's clock; Ramadan by the Umm al-Qura calendar.
 - `hooks/palette.ts`: the winter colors, generated by `node tools/make-palette.mjs`.

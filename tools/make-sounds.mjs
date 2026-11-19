@@ -1,13 +1,18 @@
 // Writes the mod's sounds into sounds/: a soft two-note chime for an answer, a bell for
 // the end of a focus session, and a small rising pop for a commit or a push. Each is
 // worked out from sine waves here, so the files are the mod's own: 16-bit mono WAV at
-// 22050 Hz. Run with: node tools/make-sounds.mjs
+// 22050 Hz, the one format every system's player reads. They are made at the loudness
+// they play at, each player playing them at its own full volume, so they sound the
+// same whichever plays them. Run with: node tools/make-sounds.mjs
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const RATE = 22050
+
+// How loud they play, of the full scale.
+const LOUDNESS = 0.8
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'sounds')
 
 // A struck tone: partials of a frequency, each with its own loudness and decay, after a
@@ -47,7 +52,7 @@ function wavOf(samples, loudness) {
   const peak = samples.reduce((top, value) => Math.max(top, Math.abs(value)), 1e-9)
   const data = Buffer.alloc(samples.length * 2)
 
-  samples.forEach((value, index) => data.writeInt16LE(Math.round((value / peak) * loudness * 32767), index * 2))
+  samples.forEach((value, index) => data.writeInt16LE(Math.round((value / peak) * loudness * LOUDNESS * 32767), index * 2))
 
   const head = Buffer.alloc(44)
 

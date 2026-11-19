@@ -1,47 +1,77 @@
 // The mod's sounds on any system. Claude Code's own `$.audio.play` plays a clip only
-// where it knows the system's player (afplay, on macOS) and plays nothing elsewhere,
-// so the mod starts a player itself: afplay on macOS; PowerShell's SoundPlayer, part of
-// Windows; on Linux PipeWire's, PulseAudio's or ALSA's player, else one of the media
-// players a desktop may carry. The first that plays is kept for the session. Where none
-// will, the engine's own play is the last try.
+// through afplay, so only on macOS. The mod starts a player itself instead, the way
+// Claude Code starts any process: with no shell, and on Windows with no window. On
+// macOS, afplay. On Windows, .NET's SoundPlayer through PowerShell, both part of
+// Windows. On Linux, PipeWire's, PulseAudio's or ALSA's player, else a media player the
+// desktop has; and under WSL, with none of those, Windows' own player across the
+// border. The first that plays is kept for the session.
+//
+// The sounds are made at the loudness they play at, so each player plays them at its
+// own full volume, and they sound the same with every player.
 
 import type { EngineInterface } from 'claude-code'
 
 export type Sound = 'chime' | 'bell' | 'pop'
 export type System = 'mac' | 'windows' | 'linux'
 
-// How loud, of the clip's own loudness.
-const VOLUME = 0.8
+export type Player = {
+  name: string
+  // The command, given the sound's path.
+  argv: (file: string) => string[]
+  // Variables for the command, given the sound's path.
+  env?: (file: string) => Record<string, string>
+  // Windows' own player run from WSL: it reads the sound by its Windows name.
+  isAcrossWsl?: boolean
+}
 
-// How long a player may take: the longest sound is under two and a half seconds.
+// How long a player may take: the longest sound is under two and a half seconds, and
+// PowerShell can take a second or two to start.
 const PLAY_TIMEOUT_MS = 10_000
 
-export type Player = { name: string; argv: (file: string) => string[] }
+// How long a quick look may take: the system's name, a path's Windows name.
+const LOOK_TIMEOUT_MS = 5000
 
-// PowerShell plays a WAV through .NET's SoundPlayer, part of Windows, and waits for it.
-const soundPlayerOf = (file: string) => `(New-Object System.Media.SoundPlayer '${file.replace(/'/g, "''")}').PlaySync()`
+// With no player found, how long before the search is made again: one may have been
+// installed, or the sound server started, meanwhile.
+export const RETRY_AFTER_MS = 10 * 60_000
+
+// PowerShell plays the WAV through .NET's SoundPlayer and waits for it to end, or exits
+// 1. The path comes in a variable, never in the command, so no character in it needs
+// quoting; WSLENV lets the variable cross over to Windows when the command runs in WSL.
+export const PLAY_WAV = 'try { (New-Object System.Media.SoundPlayer $env:WINTER_SOUND).PlaySync() } catch { exit 1 }'
+
+const POWERSHELL_ARGS = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', PLAY_WAV]
+
+const powershellAt = (command: string, name = 'PowerShell'): Player => ({
+  name,
+  argv: () => [command, ...POWERSHELL_ARGS],
+  env: file => ({ WINTER_SOUND: file, WSLENV: 'WINTER_SOUND' }),
+})
+
+const acrossWsl = (command: string): Player => ({ ...powershellAt(command, 'PowerShell (WSL)'), isAcrossWsl: true })
 
 // Each system's players, the likeliest first.
 export const PLAYERS: Readonly<Record<System, readonly Player[]>> = {
-  mac: [{ name: 'afplay', argv: file => ['afplay', '-v', String(VOLUME), file] }],
+  mac: [{ name: 'afplay', argv: file => ['afplay', file] }],
   windows: [
-    {
-      name: 'PowerShell',
-      argv: file => ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', soundPlayerOf(file)],
-    },
-    { name: 'pwsh', argv: file => ['pwsh', '-NoProfile', '-NonInteractive', '-Command', soundPlayerOf(file)] },
+    powershellAt('powershell.exe'),
+    // Where PATH has lost it: where Windows keeps it.
+    powershellAt('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'),
+    powershellAt('pwsh.exe', 'pwsh'),
   ],
   linux: [
-    { name: 'pw-play', argv: file => ['pw-play', '--volume', String(VOLUME), file] },
-    { name: 'paplay', argv: file => ['paplay', `--volume=${Math.round(VOLUME * 65536)}`, file] },
+    { name: 'pw-play', argv: file => ['pw-play', file] },
+    { name: 'paplay', argv: file => ['paplay', file] },
     { name: 'aplay', argv: file => ['aplay', '-q', file] },
-    {
-      name: 'ffplay',
-      argv: file => ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', '-volume', String(VOLUME * 100), file],
-    },
-    { name: 'mpv', argv: file => ['mpv', '--no-video', '--really-quiet', `--volume=${VOLUME * 100}`, file] },
-    { name: 'play', argv: file => ['play', '-q', '-v', String(VOLUME), file] },
+    { name: 'ffplay', argv: file => ['ffplay', '-nodisp', '-autoexit', '-loglevel', 'quiet', file] },
+    { name: 'mpv', argv: file => ['mpv', '--no-video', '--really-quiet', file] },
+    { name: 'gst-play-1.0', argv: file => ['gst-play-1.0', '--no-interactive', '-q', file] },
+    { name: 'cvlc', argv: file => ['cvlc', '--play-and-exit', '--quiet', file] },
+    { name: 'play', argv: file => ['play', '-q', file] },
     { name: 'canberra-gtk-play', argv: file => ['canberra-gtk-play', '-f', file] },
+    // Under WSL with none of those: Windows' own, by name, and by where Windows keeps it.
+    acrossWsl('powershell.exe'),
+    acrossWsl('/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'),
   ],
 }
 
@@ -63,65 +93,128 @@ export function fileOf(root: string, sound: Sound): string {
   return `${base}${separator}sounds${separator}${sound}.wav`
 }
 
-// This session's system, and the player that has played here: none found yet
-// (undefined), or none of them will (null).
-let system: System | undefined
-let player: Player | null | undefined
+// What this session has found: its system and what its players need to reach the
+// sound server; the player that plays here; or since when none would.
+type Here = { system: System; env: Record<string, string> }
 
-async function systemHere($: EngineInterface): Promise<System> {
+let here: Here | undefined
+let player: Player | undefined
+let noneSince: number | undefined
+
+// Where a Linux player finds the sound server: by XDG_RUNTIME_DIR, which a desktop
+// session sets. Started without it (by sudo, or by a service), Claude Code's players
+// are pointed at the user's own.
+async function soundServerEnv($: EngineInterface): Promise<Record<string, string>> {
+  try {
+    if ((await $.env.get('XDG_RUNTIME_DIR')) !== undefined) {
+      return {}
+    }
+    const { exitCode, stdout } = await $.process.run(['id', '-u'], { cwd: $.plugin.root, timeoutMs: LOOK_TIMEOUT_MS })
+    const uid = stdout.trim()
+
+    return exitCode === 0 && /^\d+$/.test(uid) ? { XDG_RUNTIME_DIR: `/run/user/${uid}` } : {}
+  } catch {
+    return {}
+  }
+}
+
+async function lookAround($: EngineInterface): Promise<Here> {
   const root = $.plugin.root
 
   if (systemOf(root, undefined) === 'windows') {
-    return 'windows'
+    return { system: 'windows', env: {} }
   }
-  try {
-    const { stdout } = await $.process.run(['uname', '-s'], { timeoutMs: 5000 })
+  let kernel: string | undefined
 
-    return systemOf(root, stdout)
+  try {
+    kernel = (await $.process.run(['uname', '-s'], { cwd: root, timeoutMs: LOOK_TIMEOUT_MS })).stdout
   } catch {
-    return 'linux'
+    kernel = undefined
+  }
+  const system = systemOf(root, kernel)
+
+  return { system, env: system === 'linux' ? await soundServerEnv($) : {} }
+}
+
+// A WSL path by its Windows name (\\wsl.localhost\<distro>\...), as wslpath gives it.
+// Outside WSL there is no wslpath, and this rejects.
+async function windowsNameOf($: EngineInterface, file: string): Promise<string> {
+  const { exitCode, stdout } = await $.process.run(['wslpath', '-w', file], {
+    cwd: $.plugin.root,
+    timeoutMs: LOOK_TIMEOUT_MS,
+  })
+  const name = stdout.trim()
+
+  if (exitCode !== 0 || name === '') {
+    throw new Error(`wslpath: no Windows name for ${file}`)
+  }
+
+  return name
+}
+
+// Whether `one` played `file` through to its end.
+async function played($: EngineInterface, one: Player, file: string, env: Record<string, string>): Promise<boolean> {
+  try {
+    const path = one.isAcrossWsl === true ? await windowsNameOf($, file) : file
+    const vars = { ...env, ...one.env?.(path) }
+    const { exitCode } = await $.process.run(one.argv(path), {
+      // The plugin's own folder, which is there whatever became of the session's.
+      cwd: $.plugin.root,
+      ...(Object.keys(vars).length > 0 ? { env: vars } : {}),
+      timeoutMs: PLAY_TIMEOUT_MS,
+    })
+
+    return exitCode === 0
+  } catch {
+    return false
   }
 }
 
 /**
- * Plays `sound` with the first player that runs here, and says which played it: a
- * player's name, `Claude Code` for the engine's own, or `none`.
+ * Plays `sound` with the player that plays here, found by trying each in turn, and
+ * says which played it: a player's name, `Claude Code` for its own play on macOS, or
+ * `none`. With none found, the search waits a while before it is made again.
  */
 export async function playSound($: EngineInterface, sound: Sound): Promise<string> {
-  system ??= await systemHere($)
+  here ??= await lookAround($)
 
   const file = fileOf($.plugin.root, sound)
-  const players = player === undefined ? PLAYERS[system] : player === null ? [] : [player]
 
-  for (const one of players) {
-    try {
-      const { exitCode } = await $.process.run(one.argv(file), { timeoutMs: PLAY_TIMEOUT_MS })
+  if (player !== undefined) {
+    if (await played($, player, file, here.env)) {
+      return player.name
+    }
+    // The one that played here fails now: look again, at once.
+    player = undefined
+    noneSince = undefined
+  }
+  const now = await $.clock.now()
 
-      if (exitCode === 0) {
+  if (noneSince === undefined || now - noneSince >= RETRY_AFTER_MS) {
+    for (const one of PLAYERS[here.system]) {
+      if (await played($, one, file, here.env)) {
         player = one
+        noneSince = undefined
 
         return one.name
       }
-    } catch {
-      // It cannot start here: the next one.
     }
+    noneSince = now
   }
-  // A player that played before and fails now is looked for again next time; with none
-  // at all, they are not tried again this session.
-  player = player === undefined ? null : undefined
 
-  // The engine's own play: on macOS by afplay; elsewhere, as its docs say, nothing.
+  // Claude Code's own play: by afplay on macOS; on any other system it plays nothing.
   try {
-    await $.audio.play({ asset: `sounds/${sound}.wav` }, { gain: VOLUME })
+    await $.audio.play({ asset: `sounds/${sound}.wav` })
 
-    return system === 'mac' ? 'Claude Code' : 'none'
+    return here.system === 'mac' ? 'Claude Code' : 'none'
   } catch {
     return 'none'
   }
 }
 
-/** Forgets what was found, as a new session starts: another machine, another player. */
+/** Forgets what was found: as a session starts, and as /winter sound on looks again. */
 export function forgetPlayer(): void {
-  system = undefined
+  here = undefined
   player = undefined
+  noneSince = undefined
 }

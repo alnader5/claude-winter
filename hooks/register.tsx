@@ -146,8 +146,10 @@ const USAGE =
 const soundOn = (player: string) =>
   player === 'none'
     ? 'Winter: sounds on, but no sound player answered on this machine. On Linux, PipeWire (pw-play), ' +
-      'PulseAudio (paplay) or ALSA (aplay) plays them. · الشتاء: الأصوات مفعّلة، لكن لم يستجب أي مشغّل صوت ' +
-      'على هذا الجهاز. على Linux يشغّلها PipeWire ‏(pw-play) أو PulseAudio ‏(paplay) أو ALSA ‏(aplay).'
+      "PulseAudio (paplay) or ALSA (aplay) plays them; under WSL, Windows' PowerShell does. The mod looks again " +
+      'every ten minutes, and at the next /winter sound on. · الشتاء: الأصوات مفعّلة، لكن لم يستجب أي مشغّل صوت ' +
+      'على هذا الجهاز. على Linux يشغّلها PipeWire ‏(pw-play) أو PulseAudio ‏(paplay) أو ALSA ‏(aplay)، وفي WSL ' +
+      'يشغّلها PowerShell من Windows. يعيد المود البحث كل عشر دقائق، وعند /winter sound on التالي.'
     : `Winter: sounds on, played with ${player}: a chime when Claude answers, a bell when a focus session ends, ` +
       `a pop for a commit or a push. · الشتاء: الأصوات مفعّلة عبر ${player}: رنّة حين يجيب Claude، ` +
       'وجرس عند نهاية جلسة التركيز، ونقرة لكل commit أو push.'
@@ -515,8 +517,14 @@ export const register: Register = on => {
       isSounding = what === 'on'
       await $.store.set('sound', isSounding)
 
-      // A chime to say so, and which player played it.
-      return { text: isSounding ? soundOn(await playSound($, 'chime')) : SOUNDS_OFF }
+      if (!isSounding) {
+        return { text: SOUNDS_OFF }
+      }
+      // A chime to say so, and which player played it, looked for afresh: one may have
+      // been installed since the last look.
+      forgetPlayer()
+
+      return { text: soundOn(await playSound($, 'chime')) }
     }
     if (words[0] === 'focus') {
       const what = focusAsked(words)
