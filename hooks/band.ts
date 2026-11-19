@@ -431,6 +431,53 @@ export function isOnIce(x: Place, width: number): boolean {
 const framesFor = (from: Place, to: Place, pace: number) =>
   Math.max(1, Math.ceil(Math.abs(pixelsOf(to, REFERENCE_WIDTH) - pixelsOf(from, REFERENCE_WIDTH)) / pace - 1e-9))
 
+// The work camp, from the character's left edge to the right of the spark beside it.
+export const CAMP_WIDTH = SIDE_BY_SIDE + SPARK_BOX
+
+// The snowman's reach either side of its place: its broom on the left, its waving arm
+// on the right.
+export const SNOWMAN_REACH = { left: 4 * UNIT, right: 12 * UNIT } as const
+
+// How far behind the camp the flag of the minute it reached stands: its pole, with its
+// pennant flying clear of the character.
+export const FLAG_BEHIND = 5 * UNIT
+
+// Where a long turn's camp may stand. Up to the snowman: clear of its broom. Past it:
+// its flag clear of the snowman's arm; and as far as the band's middle and a little
+// over, short of where the helpers work on a band of 480 pixels or more.
+const CAMP_BEFORE_SNOWMAN = shift(TRACK.snowman, -(SNOWMAN_REACH.left + 2 * UNIT + CAMP_WIDTH))
+const CAMP_PAST_SNOWMAN = shift(TRACK.snowman, SNOWMAN_REACH.right + UNIT + FLAG_BEHIND + UNIT)
+const CAMP_FAR = placeAt(-12 * UNIT, 0.6)
+
+// The stations up to the snowman, home not counted; the rest are past it.
+const STATIONS_BEFORE_SNOWMAN = 4
+
+/**
+ * Where the work camp stands `trek` minutes into a long turn: home, then a step on each
+ * minute, four up to the snowman and six past it. Never on the snowman, at any width.
+ */
+export function campAt(trek: number): Place {
+  const minute = Math.max(0, Math.min(MAX_TREK, Math.floor(trek)))
+
+  if (minute === 0) {
+    return HOME.x
+  }
+  if (minute <= STATIONS_BEFORE_SNOWMAN) {
+    return between(HOME.x, CAMP_BEFORE_SNOWMAN, minute / STATIONS_BEFORE_SNOWMAN)
+  }
+
+  return between(
+    CAMP_PAST_SNOWMAN,
+    CAMP_FAR,
+    (minute - STATIONS_BEFORE_SNOWMAN - 1) / (MAX_TREK - STATIONS_BEFORE_SNOWMAN - 1),
+  )
+}
+
+/** Where the flag of minute `trek` stands: just behind the camp that reached it. */
+export function flagAt(trek: number): Place {
+  return shift(campAt(trek), -FLAG_BEHIND)
+}
+
 export type Story = {
   frames: Frame[]
   // Where the spark's box rests, and the frames its two rolls start on and last.
@@ -438,11 +485,13 @@ export type Story = {
 }
 
 // What the band plays: `intro` once from the moment it is drawn, then `loop` over and
-// over. `poster` is the one frame drawn where motion is reduced.
+// over. `poster` is the one frame drawn where motion is reduced. `plantAt` is the intro's
+// frame on which a long turn's newest flag goes in, when one does.
 export type Reel = {
   intro: Frame[]
   loop: Frame[]
   poster: Frame
+  plantAt?: number
 }
 
 type Gait = readonly (readonly [Legs, Arms])[]
@@ -677,6 +726,12 @@ export function storyOf(): Story {
   put(seconds(0.4))
   put(0, { say: 'none' })
   puff()
+  put(seconds(0.4), { eyes: 'ahead' })
+
+  // Together again, they play: a snowflake comes down onto the spark, which bounces it
+  // up, and up again, higher each time, until the last bounce lands it on the
+  // character's hat, where it melts.
+  juggleAt(script)
   put(seconds(0.6), { eyes: 'ahead' })
 
   // The spark keeps about one speed at the reference width.
@@ -694,6 +749,80 @@ export function storyOf(): Story {
       backFrames,
     },
   }
+}
+
+// Where a snowflake rests on the spark's topmost ray, and on the character's hat at
+// home, in CSS pixels.
+export const FLAKE_ON_SPARK = { x: UNIT + SIDE_BY_SIDE + SPARK_BOX / 2 - UNIT, y: SPARK_CENTER_Y - 9 - 3 * UNIT }
+export const FLAKE_ON_HAT = { x: HOME.x.px + 7 * UNIT, y: TOP - 3 * UNIT }
+
+// How high each bounce sends the flake, and which way it drifts, in CSS pixels.
+const BOUNCES: readonly (readonly [number, number])[] = [
+  [6, UNIT],
+  [8, -UNIT],
+  [10, UNIT],
+]
+
+// The flake's way up off the spark and back down onto it, a frame at a time, as shares
+// of the bounce's height and drift.
+const BOUNCE_ARC: readonly (readonly [number, number])[] = [
+  [0.2, 0],
+  [0.5, 0.5],
+  [0.85, 1],
+  [1, 1],
+  [0.85, 1],
+  [0.5, 0.5],
+  [0.2, 0],
+]
+
+// The spark and the character play with a snowflake at home. It drifts down onto the
+// spark, swaying, as the character watches; the spark gathers itself and hops up under
+// it, three times, sending it higher each time; the last hop sends it over in an arc
+// onto the character's hat, which it looks up at, and the flake melts there.
+function juggleAt({ put, blink }: Script): void {
+  const { x, y } = FLAKE_ON_SPARK
+  const sway = [0, 0, UNIT, UNIT]
+
+  for (let at = -3 * UNIT, step = 0; at < y; at += UNIT, step++) {
+    put(2, { flake: { x: x + (sway[step % sway.length] ?? 0), y: at, pose: 'whole' }, eyes: at < y / 2 ? 'up' : 'right' })
+  }
+  put(3, { flake: { x, y, pose: 'whole' }, eyes: 'right' })
+
+  for (const [height, drift] of BOUNCES) {
+    // It gathers itself under the flake, then hops.
+    put(1, { sparkDip: UNIT / 2, sparkScale: 0.92, tilt: 0 })
+    put(1, { sparkDip: -2 * UNIT, sparkScale: 1.06, tilt: drift > 0 ? 6 : -6 })
+
+    BOUNCE_ARC.forEach(([up, aside], index) => {
+      put(1, {
+        flake: { x: even(x + drift * aside), y: even(y - height * up), pose: 'whole' },
+        eyes: up > 0.6 ? 'up' : 'right',
+        ...(index === 0 ? { sparkDip: -UNIT, sparkScale: 1 } : index === 1 ? { sparkDip: 0, tilt: 0 } : {}),
+      })
+    })
+    put(1, { flake: { x, y, pose: 'whole' }, eyes: 'right' })
+  }
+
+  // The last hop: over in an arc onto the hat, the character's eyes on it all the way.
+  const { x: hatX, y: hatY } = FLAKE_ON_HAT
+  const steps = 12
+
+  put(1, { sparkDip: UNIT / 2, sparkScale: 0.9 })
+  put(1, { sparkDip: -3 * UNIT, sparkScale: 1.1, tilt: -10 })
+
+  for (let step = 1; step <= steps; step++) {
+    const t = step / steps
+
+    put(1, {
+      flake: { x: even(x + (hatX - x) * t), y: even(y + (hatY - y) * t - 40 * t * (1 - t)), pose: 'whole' },
+      eyes: 'up',
+      ...(step === 2 ? { sparkDip: 0, sparkScale: 1, tilt: 0 } : {}),
+    })
+  }
+  put(seconds(0.6), { flake: { x: hatX, y: hatY, pose: 'whole' }, eyes: 'up' })
+  blink()
+  put(seconds(0.4), { flake: { x: hatX, y: hatY, pose: 'bit' }, eyes: 'up' })
+  put(0, { flake: null })
 }
 
 // The spark diving into the snow, a frame at a time: how far down, how big, and the
@@ -1115,12 +1244,16 @@ export function workingOf({
   activity,
   opening,
   tone,
-}: Pick<Work, 'activity' | 'opening' | 'tone'> = FRESH_WORK): Reel {
-  const intro = scriptFrom(HOME)
+  trek = 0,
+}: Pick<Work, 'activity' | 'opening' | 'tone'> & { trek?: number } = FRESH_WORK): Reel {
+  // Where the camp stands this minute of the turn, and where it stood the minute before.
+  const atCamp: Frame = { ...HOME, x: campAt(trek) }
+  const intro = scriptFrom(opening === 'onward' ? { ...HOME, x: campAt(trek - 1) } : atCamp)
+  let plantAt: number | undefined
 
   if (opening === 'stay') {
     // The same work, only harder: on with it, the prop out from the first frame.
-    const prop = scriptFrom(HOME)
+    const prop = scriptFrom(atCamp)
 
     setOut(prop, activity)
 
@@ -1130,13 +1263,18 @@ export function workingOf({
 
     const frames = tone === 'urgent' ? sweating(loop.frames) : loop.frames
 
-    return { intro: [], loop: frames, poster: frames[0] ?? HOME }
+    return { intro: [], loop: frames, poster: frames[0] ?? atCamp }
   }
   if (opening === 'commit' || opening === 'push' || opening === 'ship') {
     // Git did something worth a cheer: the prop goes, the cheer, then the prop again.
     intro.put(2, { laptop: 'poof' })
     intro.put(0, { laptop: 'none' })
     CHEER[opening](intro)
+  } else if (opening === 'onward') {
+    // A minute more: the prop goes, and the camp moves on a step.
+    intro.put(2, { laptop: 'poof' })
+    intro.put(0, { laptop: 'none' })
+    plantAt = onwardAt(intro, atCamp.x)
   } else if (opening === 'switch') {
     intro.put(2, { laptop: 'poof' })
     intro.put(0, { laptop: 'none' })
@@ -1154,18 +1292,63 @@ export function workingOf({
 
   const frames = tone === 'urgent' ? sweating(loop.frames) : loop.frames
 
-  return { intro: intro.frames, loop: frames, poster: frames[0] ?? HOME }
+  // Walking on, its scarf streams behind it.
+  return {
+    intro: opening === 'onward' ? dressed(intro.frames, false) : intro.frames,
+    loop: frames,
+    poster: frames[0] ?? atCamp,
+    ...(plantAt === undefined ? {} : { plantAt }),
+  }
+}
+
+// A minute more of a long turn: the character walks on a step to `to`, the spark
+// beside it. Passing the snowman, it looks back and waves, and the snowman waves back.
+// Then it plants the minute's flag behind it, on the frame this says.
+function onwardAt(script: Script, to: Place): number {
+  const { put, walk } = script
+  const from = script.now().x
+  const atReference = (place: Place) => pixelsOf(place, REFERENCE_WIDTH)
+  const isPastSnowman =
+    atReference(from) < atReference(TRACK.snowman) && atReference(to) > atReference(TRACK.snowman)
+
+  put(2, { eyes: 'right' })
+  walk(to, framesFor(from, to, WALK_STEP), WALK)
+
+  if (isPastSnowman) {
+    put(seconds(0.3), { eyes: 'left' })
+
+    for (let wave = 0; wave < 2; wave++) {
+      put(3, { arms: 'up', pal: 'rest' })
+      put(3, { arms: 'rest', pal: 'wave' })
+    }
+    put(3, { pal: 'rest' })
+    put(0, { eyes: 'ahead' })
+  }
+  const plantAt = script.frames.length
+
+  // The flag goes in behind it, with a push.
+  put(2, { crouch: true, legs: 'tuck' })
+  put(2, { crouch: false, legs: 'stand' })
+
+  return plantAt
+}
+
+/**
+ * How long a work band's intro plays, in milliseconds: the opening, the walk on, the
+ * cheer, the prop coming out. Nothing of the tools that run should cut into it.
+ */
+export function introMsOf(work: Pick<Work, 'activity' | 'opening' | 'tone'> & { trek?: number }): number {
+  const { intro } = workingOf(work)
+
+  return Math.round((intro.length / FPS / (work.tone === 'urgent' ? HURRY : 1)) * 1000)
 }
 
 /**
  * How long a turn's opening plays for a prompt of `tone`, in milliseconds: the plane
- * and how the character meets it, and the prop coming out. Nothing of the tools that
- * run should cut into it.
+ * and how the character meets it, and the prop coming out.
  */
 export function openingMsOf(tone: Tone): number {
-  const { intro } = workingOf({ activity: 'think', opening: 'start', tone })
-
-  return Math.round((intro.length / FPS / (tone === 'urgent' ? HURRY : 1)) * 1000)
+  return introMsOf({ activity: 'think', opening: 'start', tone })
 }
 
 /**
@@ -1270,8 +1453,10 @@ export function ringingOf(): Reel {
  * How a turn's end is met, from the laptop as the work left it to home, standing,
  * where the chase begins.
  */
-export function endingOf(mood: Ending): Frame[] {
-  const { frames, put, blink, jump } = scriptFrom({ ...HOME, eyes: 'down', laptop: 'open' })
+export function endingOf(mood: Ending, trek = 0): Frame[] {
+  // Where the turn's camp stands: home, unless a long turn has moved it on.
+  const camp = campAt(trek)
+  const { frames, put, blink, jump, walk, puff } = scriptFrom({ ...HOME, x: camp, eyes: 'down', laptop: 'open' })
 
   // It looks up from the screen. The lid folds shut, and the laptop goes in a puff.
   put(2, { arms: 'rest', eyes: 'ahead' })
@@ -1303,18 +1488,31 @@ export function endingOf(mood: Ending): Frame[] {
   } else {
     put(seconds(0.5))
   }
+
+  if (!isSame(camp, HOME.x)) {
+    // Out on a long turn's way: home again past its flags, at a run, and a puff in the
+    // cold once there.
+    put(seconds(0.3), { eyes: 'left' })
+    walk(HOME.x, framesFor(camp, HOME.x, RUN_STEP), RUN)
+    puff()
+  }
   put(seconds(0.2), HOME)
 
-  return frames
+  return dressed(frames, false)
 }
 
 const msOf = (frames: number) => Math.round((frames / FPS) * 1000)
 
-// How long each ending plays before the chase takes over, in milliseconds.
+/** How long the ending of a turn `trek` minutes long plays, in milliseconds. */
+export function endingMsOf(mood: Ending, trek = 0): number {
+  return msOf(endingOf(mood, trek).length)
+}
+
+// How long each ending plays before the chase takes over, in milliseconds, at home.
 export const ENDING_MS: Readonly<Record<Ending, number>> = {
-  joy: msOf(endingOf('joy').length),
-  puzzled: msOf(endingOf('puzzled').length),
-  closing: msOf(endingOf('closing').length),
+  joy: endingMsOf('joy'),
+  puzzled: endingMsOf('puzzled'),
+  closing: endingMsOf('closing'),
 }
 
 // What an ending's still frame says where motion is reduced.
@@ -1355,13 +1553,13 @@ export function polished(frames: readonly Frame[], isLoop: boolean): Frame[] {
  * A mood's reel. An ending plays on into the chase, so the band runs on as it should
  * whenever the switch back to the chase comes. Every reel gets its finish.
  */
-export function reelOf(mood: Mood, story: Story = storyOf(), work: Work = FRESH_WORK): Reel {
-  const { intro, loop, poster } = bareReelOf(mood, story, work)
+export function reelOf(mood: Mood, story: Story = storyOf(), work: Work = FRESH_WORK, trek = 0): Reel {
+  const reel = bareReelOf(mood, story, work, trek)
 
-  return { intro: polished(intro, false), loop: polished(loop, true), poster }
+  return { ...reel, intro: polished(reel.intro, false), loop: polished(reel.loop, true) }
 }
 
-function bareReelOf(mood: Mood, story: Story, work: Work): Reel {
+function bareReelOf(mood: Mood, story: Story, work: Work, trek: number): Reel {
   if (mood === 'working') {
     return workingOf(work)
   }
@@ -1383,7 +1581,7 @@ function bareReelOf(mood: Mood, story: Story, work: Work): Reel {
   if (mood === 'idle') {
     return { intro: [], loop: chase, poster: home }
   }
-  const intro = endingOf(mood)
+  const intro = endingOf(mood, trek)
   const sign = SIGN[mood]
 
   return {
@@ -1645,6 +1843,8 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1)
   const home = `.spark-x{${varsOf(story.spark.home)};transform:translateX(${SMOOTH})`
   const loop = secondsOf(story.frames.length)
   const intro = secondsOf(reel.intro.length / tempo)
+  // Beside the character as it walks a long turn's way, out or home.
+  const follow = sparkFollowOf(reel)
   const tilt = smoothOf(
     'spark-tilt',
     story.frames.map(frame => `transform:rotate(${frame.tilt}deg)`),
@@ -1701,6 +1901,10 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1)
   }
 
   if (mood === 'working') {
+    // At the camp, beside the character; walking on with it when the camp moves.
+    const camp = `.spark-x{${varsOf(sparkBeside(reel.loop[0] ?? HOME))};transform:translateX(${SMOOTH})${
+      follow === '' ? '' : `;animation:spark-follow ${intro} linear forwards`
+    }}`
     // The harder the turn works, the faster the spark whirls, and the quicker and
     // brighter its glow beats.
     const pace = HEAT_PACE[work.heat]
@@ -1712,11 +1916,12 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1)
     const spin = '@keyframes spark-whirl{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}'
 
     if (whirl === 0) {
-      return [`${home}}`, `.glow{opacity:${low};animation:glow 2.6s ease-in-out infinite}`, pulse].join('\n')
+      return [camp, follow, `.glow{opacity:${low};animation:glow 2.6s ease-in-out infinite}`, pulse].join('\n')
     }
     if (work.opening !== 'start') {
       return [
-        `${home}}`,
+        camp,
+        follow,
         `.spark-spin{animation:spark-whirl ${whirl}s linear infinite}`,
         spin,
         `.glow{opacity:${low};animation:glow ${beat}s ease-in-out infinite}`,
@@ -1727,7 +1932,7 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1)
     const windUp = ((360 / whirl) * (reel.intro.length / FPS / tempo)) / 2
 
     return [
-      `${home}}`,
+      camp,
       `.spark-wind{animation:spark-wind ${intro} ${SPIN_UP} forwards}`,
       `@keyframes spark-wind{from{transform:rotate(0deg)}to{transform:rotate(${windUp.toFixed(2)}deg)}}`,
       `.spark-spin{animation:spark-whirl ${whirl}s linear ${intro} infinite}`,
@@ -1741,7 +1946,8 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1)
   // A whole turn, so it comes to rest where the chase's spark starts out.
   const settle = secondsOf(Math.min(reel.intro.length, seconds(mood === 'joy' ? 1 : 1.5)))
   const css = [
-    `${home};animation:spark-x ${loop} linear ${intro} infinite}`,
+    `${home};animation:${follow === '' ? '' : `spark-follow ${intro} linear,`}spark-x ${loop} linear ${intro} infinite}`,
+    follow,
     `.spark-spin{animation:spark-settle ${settle} ${SPIN_DOWN},spark-spin ${loop} linear ${intro} infinite}`,
     '@keyframes spark-settle{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}',
     `.spark-tilt{animation:spark-tilt ${loop} linear ${intro} infinite}`,
@@ -1764,6 +1970,25 @@ function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1)
   }
 
   return css.join('\n')
+}
+
+// Where the spark stands beside the character standing at `frame`.
+const sparkBeside = (frame: Frame): Place => shift(frame.x, SIDE_BY_SIDE)
+
+// The spark beside the character as it walks over a reel's intro, as keyframes: a long
+// turn's camp moving on a step, or going home at the turn's end. None when the
+// character stays where it is.
+function sparkFollowOf(reel: Reel): string {
+  const first = reel.intro[0]
+  const last = reel.intro[reel.intro.length - 1]
+
+  // A dance on the spot is no walk: the spark stays where it is.
+  if (first === undefined || last === undefined || isSame(first.x, last.x)) {
+    return ''
+  }
+  const end = sparkBeside(reel.loop[0] ?? last)
+
+  return glidesOf('spark-follow', reel.intro.map(sparkBeside), end, varsOf)
 }
 
 // Each ray's angle in degrees and its length: uneven, as a spark drawn by hand is.
@@ -1896,28 +2121,25 @@ function fireworksOf(): Layer {
   }
 }
 
-/**
- * Where a long turn's flag for minute `count` stands: the first just past the spark,
- * the tenth near the far end, the rest evenly between, at any width.
- */
-export function trekAt(count: number): Place {
-  return between(placeAt(76), placeAt(-48, 1), (count - 1) / (MAX_TREK - 1))
-}
-
 // How many minutes a turn runs, at the least, to end with the big flag.
 export const SUMMIT_AFTER = 2
 
-// A long turn's flags along the snow. The newest springs up out of the snow as it is
-// planted; a long turn answered plants the big flag in the last one's place, a star on
-// it, flying.
-function trekLayerOf(count: number, { isNew, summit }: { isNew: boolean; summit: boolean }): Layer {
+// A long turn's flags along the snow, each just behind the camp that reached it, never
+// off the band's left edge. The newest springs up out of the snow as the character
+// plants it, `plantIn` into the band; a long turn answered plants the big flag in the
+// last one's place, a star on it, flying.
+function trekLayerOf(count: number, { plantIn, summit }: { plantIn?: string; summit: boolean }): Layer {
   let svg = ''
 
   for (let minute = 1; minute <= count; minute++) {
     const isSummit = summit && minute === count
     const pole = isSummit ? SUMMIT_FLAG.pole : TREK_FLAG.pole
     const height = (pole[0]?.[3] ?? 6) * UNIT
-    const isPlanted = isSummit || (isNew && minute === count)
+    const planted = isSummit
+      ? ' class="plant"'
+      : plantIn !== undefined && minute === count
+        ? ` class="plant" style="animation-delay:${plantIn}"`
+        : ''
     const flag = isSummit
       ? `<path class="fly1" fill="${KNIT_RED}" d="${pathOf(SUMMIT_FLAG.fly1)}"/>` +
         `<path class="fly2" fill="${KNIT_RED}" d="${pathOf(SUMMIT_FLAG.fly2)}"/>` +
@@ -1925,8 +2147,8 @@ function trekLayerOf(count: number, { isNew, summit }: { isNew: boolean; summit:
       : `<path fill="${KNIT_RED}" d="${pathOf(TREK_FLAG.flag)}"/>`
 
     svg +=
-      `<g class="px" style="transform:translate(${cssOf(trekAt(minute))},${BAND_HEIGHT - GROUND - height}px)">` +
-      `<g${isPlanted ? ' class="plant"' : ''}><path fill="${STICK}" d="${pathOf(pole)}"/>${flag}</g></g>`
+      `<g class="px" style="transform:translate(max(0px,${cssOf(flagAt(minute))}),${BAND_HEIGHT - GROUND - height}px)">` +
+      `<g${planted}><path fill="${STICK}" d="${pathOf(pole)}"/>${flag}</g></g>`
   }
 
   return {
@@ -2290,7 +2512,7 @@ export function bandOf(
   } = {},
 ): string {
   const story = storyOf()
-  const reel = reelOf(mood, story, work)
+  const reel = reelOf(mood, story, work, trek)
   const { intro, loop, poster } = reel
   const frames = [...intro, ...loop]
   // The spark glows at work and fades out of it, and has no glow in the chase, asleep or
@@ -2457,15 +2679,21 @@ export function bandOf(
     layerOf('load', LOAD, frame => (frame.shovel === 'heave' && !frame.flung ? 'heave' : 'none'), reel, SNOW_WHITE),
     layerOf('flung', FLUNG, frame => (frame.flung ? 'flung' : 'none'), reel, FLAKE_BLUE),
   ]
-  // A long turn's flags: while it works, and as it ends; the big one for a long turn
-  // answered.
+  // A long turn's flags: while it works, the newest going in as the camp reaches it; and
+  // as it ends, with the big one for a long turn answered.
   const isEnding = mood === 'joy' || mood === 'puzzled' || mood === 'closing'
   const flags =
     mood === 'working'
-      ? trekLayerOf(work.trek, { isNew: work.opening === 'stay', summit: false })
+      ? trekLayerOf(work.trek, {
+          summit: false,
+          ...(reel.plantAt === undefined ? {} : { plantIn: secondsOf(reel.plantAt / tempo) }),
+        })
       : isEnding
-        ? trekLayerOf(trek, { isNew: false, summit: mood === 'joy' && trek >= SUMMIT_AFTER })
+        ? trekLayerOf(trek, { summit: mood === 'joy' && trek >= SUMMIT_AFTER })
         : { svg: '', css: '' }
+  // Where the camp stands while it works: what belongs to it but is drawn on its own
+  // (the robin, the git cheer's snowball and star) stands there too.
+  const campShift = less(mood === 'working' ? (loop[0] ?? HOME).x : HOME.x, HOME.x)
 
   // What the occasion brings: confetti for New Year, a lantern for Ramadan.
   const confetti = occasion === 'newyear' ? confettiOf() : { svg: '', css: '' }
@@ -2549,6 +2777,7 @@ export function bandOf(
     bell.css,
     visit.css,
     flags.css,
+    `.camp{${varsOf(campShift)};transform:translateX(${ON_GRID})}`,
     drifted.css,
     ...shovel.map(layer => layer.css),
     mood === 'focus' ? RAY_OUT : '',
@@ -2641,6 +2870,6 @@ ${embers}
 <g class="spark-x"><g class="spark-hop"><g transform="translate(${SPARK_BOX / 2} ${SPARK_CENTER_Y})">${glow}<g class="spark-pose"><g class="spark-tilt"><g class="spark-wind"><g class="spark-spin">${raysOf(mood === 'focus' ? focus : undefined)}</g></g></g></g><g class="px">${sneeze.svg}${kick.svg}${rising.svg}${fireworks.svg}</g></g></g></g>
 ${hasFlake ? `<g class="m flake-at px">${flake.svg}</g>` : ''}${confetti.svg}${bell.svg}${helpers.svg}
 <g class="m walker px">${answer.zones}<g class="poke"><g class="m jumper">${legs.svg}<g class="m body">${shovel.map(layer => layer.svg).join('')}<path fill="${ORANGE}" d="${pathOf(BODY)}"/>${clothes}${tail.svg}${tailStripe.svg}${arms.svg}${eyes.svg}${blush.svg}${sweat.svg}${gitFlag.map(layer => layer.svg).join('')}${scope.map(layer => layer.svg).join('')}${answer.body}</g>${breath.svg}${words.svg}${love.svg}${snores.svg}${tick.svg}${answer.over}</g></g>${lid.svg}${hinge.svg}${logo.svg}${props.map(layer => layer.svg).join('')}${note.map(layer => layer.svg).join('')}${dust.svg}</g>
-${hasPlane ? `<g class="m plane-at px">${plane.map(layer => layer.svg).join('')}</g>` : ''}${hasBall ? `<g class="m ball-at px">${snowball.map(layer => layer.svg).join('')}</g>` : ''}${twinkle.svg === '' ? '' : `<g class="px" transform="translate(${TWINKLE_AT.x} ${TWINKLE_AT.y})">${twinkle.svg}</g>`}${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}
+<g class="camp">${hasPlane ? `<g class="m plane-at px">${plane.map(layer => layer.svg).join('')}</g>` : ''}${hasBall ? `<g class="m ball-at px">${snowball.map(layer => layer.svg).join('')}</g>` : ''}${twinkle.svg === '' ? '' : `<g class="px" transform="translate(${TWINKLE_AT.x} ${TWINKLE_AT.y})">${twinkle.svg}</g>`}${hasRobin ? `<g class="m robin-at px">${robin.map(layer => layer.svg).join('')}</g>` : ''}</g>
 </svg>`
 }

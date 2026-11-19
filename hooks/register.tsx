@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeSetArgs, Timer, TurnCompleteReason } from 'claude-code'
 
 import type { Activity, Beat, Drift, Focus, Motion, Occasion, Snowman, Sky, Tone, Work } from '../types'
-import { ALT, BAND_HEIGHT, ENDING_MS, MAX_WIDTH, bandOf, openingMsOf } from './band'
+import { ALT, BAND_HEIGHT, MAX_WIDTH, bandOf, endingMsOf, introMsOf, openingMsOf } from './band'
 import type { Ending, Mood } from './band'
 import { makeColors } from './make-colors.js'
 import { WINTER } from './palette'
@@ -310,8 +310,10 @@ async function showWork($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
   const next = wanted()
   const heat = heatOf(now - turnStartedAt, tools)
-  const trek = trekOf(now - turnStartedAt)
   const shown = await read($, work)
+  // A long turn's camp moves on a step each minute, but not while the person is asked
+  // something, nor through a cheer: it moves on once they are over.
+  const trek = next === 'wait' || cheered !== undefined ? shown.trek : Math.max(shown.trek, trekOf(now - turnStartedAt))
 
   if (shown.activity === next && shown.heat >= heat && shown.trek >= trek && cheered === undefined) {
     return
@@ -328,13 +330,17 @@ async function showWork($: EngineInterface): Promise<void> {
   const cheer = cheered
 
   cheered = undefined
-  await update($, work, old => ({
+
+  const shownNow = await update($, work, old => ({
     ...old,
     activity: next,
     heat: heat > old.heat ? heat : old.heat,
     trek: Math.max(old.trek, trek),
-    opening: cheer ?? (old.activity === next ? ('stay' as const) : ('switch' as const)),
+    opening: cheer ?? (trek > old.trek ? ('onward' as const) : old.activity === next ? ('stay' as const) : ('switch' as const)),
   }))
+
+  // No change of work cuts into the walk on, the cheer or the prop coming out.
+  openedUntil = Math.max(openedUntil, now + introMsOf(shownNow))
 }
 
 // A shell command that ran and did something in git worth a cheer, while a turn is
@@ -667,10 +673,11 @@ export const register: Register = on => {
       const mood = ENDING_OF[e.reason]
       const { turnId } = e
       // How hard and how long it worked, by the end: a hard turn answered ends in
-      // fireworks, a long one in a flag planted.
+      // fireworks, a long one in a flag planted. The ending starts where the camp
+      // stands, its flags as the band showed them, and walks home from there.
       const shown = await read($, work)
       const heat = shown.heat
-      const trek = Math.max(shown.trek, trekOf((await $.clock.now()) - turnStartedAt))
+      const trek = shown.trek
 
       await stir($)
       await freshWork($)
@@ -683,7 +690,7 @@ export const register: Register = on => {
       }
 
       // Then back to the chase, unless another turn has begun meanwhile.
-      $.clock.after(ENDING_MS[mood] + SETTLE_MS, () => {
+      $.clock.after(endingMsOf(mood, trek) + SETTLE_MS, () => {
         void update($, beat, now => (now?.turnId === turnId && now.mood === mood ? null : now))
       })
     }

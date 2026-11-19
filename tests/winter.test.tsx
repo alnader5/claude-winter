@@ -17,9 +17,17 @@ import {
   endingOf,
   helperAt,
   isOnIce,
-  trekAt,
+  FLAKE_ON_HAT,
+  FLAKE_ON_SPARK,
+  introMsOf,
   openingMsOf,
   polished,
+  campAt,
+  flagAt,
+  endingMsOf,
+  CAMP_WIDTH,
+  FLAG_BEHIND,
+  SNOWMAN_REACH,
   pixelsOf,
   printsOf,
   reelOf,
@@ -262,8 +270,53 @@ test('a snowflake lands on the spark, which shakes it off before it rolls away',
   expect(frames[shaken - 1]?.flake?.pose).toBe('whole')
   expect(frames[shaken - 1]?.eyes).toBe('right')
   // Gone, and the spark still again, well before the spark rolls out.
-  expect(frames.slice(shaken + 6).every(frame => frame.flake === null && frame.tilt === 0)).toBe(true)
+  expect(frames.slice(shaken + 6, spark.out).every(frame => frame.flake === null && frame.tilt === 0)).toBe(true)
   expect(shaken + 6 < spark.out).toBe(true)
+})
+
+test('home together again, the spark bounces a snowflake higher and higher, then onto the hat', () => {
+  const { frames, spark } = storyOf()
+  const popped = frames.findIndex((frame, index) => index > spark.back && frame.sparkScale > 1)
+  const start = frames.findIndex((frame, index) => index > popped && frame.flake !== null)
+  const play = frames.slice(start)
+  const hops = play.filter((frame, index) => frame.sparkDip < 0 && (play[index - 1]?.sparkDip ?? 0) >= 0)
+  const landed = play.findIndex(
+    frame => frame.flake?.x === FLAKE_ON_HAT.x && frame.flake.y === FLAKE_ON_HAT.y && frame.flake.pose === 'whole',
+  )
+
+  // After the greeting, at home: down from over the band onto the spark.
+  expect(start > popped + 30).toBe(true)
+  expect(play.every(frame => isAt(frame.x, HOME.x))).toBe(true)
+  expect((play[0]?.flake?.y ?? 0) < 0).toBe(true)
+  expect(play.some(frame => frame.flake?.x === FLAKE_ON_SPARK.x && frame.flake.y === FLAKE_ON_SPARK.y)).toBe(true)
+
+  // Three bounces and the last hop, each hop after the spark gathers itself, the flake
+  // higher each time.
+  expect(hops.length).toBe(4)
+
+  const tops = [0, 1, 2].map(bounce => {
+    const from = play.indexOf(hops[bounce] ?? play[0] ?? HOME)
+    const to = play.indexOf(hops[bounce + 1] ?? play[0] ?? HOME)
+
+    return Math.min(...play.slice(from, to).map(frame => frame.flake?.y ?? 99))
+  })
+
+  expect((tops[0] ?? 0) > (tops[1] ?? 0) && (tops[1] ?? 0) > (tops[2] ?? 0)).toBe(true)
+  // The character watching it all the way, looking up as it flies.
+  expect(play.filter(frame => frame.flake !== null).every(frame => ['up', 'right', 'shut'].includes(frame.eyes))).toBe(
+    true,
+  )
+
+  // Onto the hat, looked up at, and melted away; the loop ends as it began.
+  expect(landed > 0).toBe(true)
+  expect(play[landed]?.eyes).toBe('up')
+  expect(play.slice(landed).some(frame => frame.flake?.pose === 'bit')).toBe(true)
+
+  const last = frames[frames.length - 1]
+
+  expect(last?.flake).toBeNull()
+  expect([last?.sparkDip, last?.sparkScale, last?.tilt]).toEqual([0, 1, 0])
+  expect(bandOf('idle')).toContain('class="m flake-at px"')
 })
 
 test('the spark sneezes the flake off, and hides in the snow while the character walks home', () => {
@@ -289,7 +342,10 @@ test('the spark sneezes the flake off, and hides in the snow while the character
   expect(frames.slice(gone, popped - 1).filter(frame => frame.burst === 'snow1').length >= 6).toBe(true)
   expect(isAt(frames[popped + 1]?.x ?? TRACK.far, HOME.x)).toBe(true)
   expect(frames[popped + 1]?.say).toBe('alert')
-  expect(frames.slice(popped + 3).every(frame => frame.sparkScale === 1 && frame.sparkDip === 0)).toBe(true)
+  // Still once out, until it plays with a snowflake.
+  const plays = frames.findIndex((frame, index) => index > popped && frame.flake !== null)
+
+  expect(frames.slice(popped + 3, plays).every(frame => frame.sparkScale === 1 && frame.sparkDip === 0)).toBe(true)
   // Snow kicked up going in and coming out.
   expect(frames.slice(gone - 3, gone + 1).map(frame => frame.burst)).toEqual(['snow1', 'snow2', 'snow3', 'none'])
   expect(frames.slice(popped - 1, popped + 3).map(frame => frame.burst)).toEqual(['snow1', 'snow2', 'snow3', 'none'])
@@ -1580,36 +1636,84 @@ test('the band cheers a commit and a push that went through, and not one that fa
   await clock.advance(1500)
   expect(await source()).toContain('git-flag-wave1')
 
-  // An agent's push: the snowball.
+  // An agent's push: the snowball, once the flag has been waved through.
   await $.tool.call({ tool: 'Bash', command: 'git push origin main', tool_use_id: 'p1', agentId: 'shipper' })
   await clock.advance(1500)
+  expect(await source()).not.toContain('class="m ball-at px"')
+  await clock.advance(introMsOf({ activity: 'run', opening: 'commit', tone: 'plain' }))
   expect(await source()).toContain('class="m ball-at px"')
   await ui.unmount()
 })
 
-test('a long turn plants a flag a minute along the snow, and a long answer the big one', () => {
+test("a long turn's camp moves on a step a minute, a flag behind it, never onto the snowman", () => {
   expect([0, 59_999, 60_000, 150_000, 600_000, 900_000].map(trekOf)).toEqual([0, 0, 1, 2, 10, 10])
+  expect(campAt(0)).toEqual(HOME.x)
 
-  // Evenly from just past the spark to near the far end, on the stage at any width.
   for (const width of WIDTHS) {
-    const xs = Array.from({ length: MAX_TREK }, (_, index) => pixelsOf(trekAt(index + 1), width))
+    const camps = Array.from({ length: MAX_TREK + 1 }, (_, minute) => pixelsOf(campAt(minute), width))
+    const snowman = pixelsOf(TRACK.snowman, width)
 
-    expect(xs[0]).toBe(76)
-    expect(xs[MAX_TREK - 1]).toBe(width - 48)
-    expect(xs.every((x, index) => index === 0 || x >= (xs[index - 1] ?? 0))).toBe(true)
+    // Onward all the way, on the stage.
+    expect(camps.every((x, minute) => minute === 0 || x >= (camps[minute - 1] ?? 0))).toBe(true)
+    expect(camps.every(x => x >= 0 && x + CAMP_WIDTH <= width)).toBe(true)
+    // Never on the snowman, its broom or its arm; nor its flag, past it.
+    camps.forEach((x, minute) => {
+      expect(x + CAMP_WIDTH <= snowman - SNOWMAN_REACH.left || x >= snowman + SNOWMAN_REACH.right).toBe(true)
+      expect(Math.abs(pixelsOf(flagAt(minute), width) - (x - FLAG_BEHIND)) < 1e-6).toBe(true)
+
+      if (x > snowman) {
+        expect(x - FLAG_BEHIND >= snowman + SNOWMAN_REACH.right).toBe(true)
+      }
+    })
+
+    // Wide enough, short of where the helpers work.
+    if (width >= REFERENCE_WIDTH) {
+      expect((camps[MAX_TREK] ?? 0) + CAMP_WIDTH <= pixelsOf(helperAt(MAX_HELPERS - 1), width)).toBe(true)
+    }
+  }
+
+  // Each minute: the prop goes, a walk on to the next station with the spark beside it,
+  // and the flag pushed in behind. Past the snowman, a wave, which it returns.
+  for (let trek = 1; trek <= MAX_TREK; trek++) {
+    const { intro, loop, plantAt } = workingOf({ activity: 'read', opening: 'onward', tone: 'plain', trek })
+    const crosses =
+      pixelsOf(campAt(trek - 1), REFERENCE_WIDTH) < pixelsOf(TRACK.snowman, REFERENCE_WIDTH) &&
+      pixelsOf(campAt(trek), REFERENCE_WIDTH) > pixelsOf(TRACK.snowman, REFERENCE_WIDTH)
+
+    expect(isAt(intro[0]?.x ?? HOME.x, campAt(trek - 1))).toBe(true)
+    expect(isAt(intro[intro.length - 1]?.x ?? HOME.x, campAt(trek))).toBe(true)
+    expect(loop.every(frame => isAt(frame.x, campAt(trek)))).toBe(true)
+    expect(plantAt === undefined ? undefined : intro[plantAt]?.crouch).toBe(true)
+    expect(intro.slice(plantAt).every(frame => isAt(frame.x, campAt(trek)))).toBe(true)
+    expect(intro.some(frame => frame.pal === 'wave')).toBe(crosses)
+    expect(intro.at(-1)?.book).not.toBe('none')
+    expectOnTrack(intro, false)
   }
 
   const pennant = `d="${pathOf(TREK_FLAG.flag)}"`
   const flagsIn = (band: string) => band.split(pennant).length - 1
-  const working = (opening: 'stay' | 'switch', trek: number) =>
+  const working = (opening: 'stay' | 'switch' | 'onward', trek: number) =>
     bandOf('working', { work: { activity: 'think', opening, helpers: 0, tone: 'plain', heat: 0, trek } })
+  const { plantAt } = workingOf({ activity: 'think', opening: 'onward', tone: 'plain', trek: 3 })
 
-  // Three minutes, three flags; the newest springs up as the band goes on with the same
-  // work, and stands still when the work switches.
-  expect(flagsIn(working('stay', 3))).toBe(3)
-  expect(working('stay', 3).match(/class="plant"/g)?.length).toBe(1)
+  // Three minutes, three flags. The newest goes in as the camp reaches it, the spark
+  // rolling along beside; going on with the same work, or switching, nothing moves.
+  expect(flagsIn(working('onward', 3))).toBe(3)
+  expect(working('onward', 3)).toContain(
+    `class="plant" style="animation-delay:${Number(((plantAt ?? 0) / 12).toFixed(3))}s"`,
+  )
+  expect(working('onward', 3)).toContain('animation:spark-follow')
   expect(working('switch', 3)).not.toContain('class="plant"')
+  expect(working('stay', 3)).not.toContain('spark-follow')
   expect(flagsIn(working('stay', 0))).toBe(0)
+
+  // At the camp: the spark beside the character, and the robin and the git cheers there.
+  expect(working('stay', 6)).toContain(
+    `.spark-x{--of:${Number(campAt(6).of.toFixed(5))};--px:${Number((campAt(6).px + 38).toFixed(2))}px;`,
+  )
+  expect(working('stay', 6)).toContain(
+    `.camp{--of:${Number(campAt(6).of.toFixed(5))};--px:${Number((campAt(6).px - HOME.x.px).toFixed(2))}px;`,
+  )
 
   // A long turn answered: the big flag where the last stood, flying. Not for a short
   // one, nor for one that ended any other way.
@@ -1624,24 +1728,92 @@ test('a long turn plants a flag a minute along the snow, and a long answer the b
   expect(flagsIn(bandOf('idle', { trek: 3 }))).toBe(0)
 })
 
-test('the flags come up a minute at a time while Claude works, and the big one as it answers', async ($, on) => {
+test('a long turn ends where its camp stands, and the character runs home past its flags', () => {
+  for (const mood of ['joy', 'puzzled', 'closing'] as const) {
+    const frames = endingOf(mood, 6)
+
+    expect(isAt(frames[0]?.x ?? HOME.x, campAt(6))).toBe(true)
+    expect(frames[frames.length - 1]).toEqual(HOME)
+    // Its say at the camp, before it runs.
+    expect(frames.filter(frame => frame.say !== 'none').every(frame => isAt(frame.x, campAt(6)))).toBe(true)
+    expect(frames.some(frame => frame.legs === 'a' && frame.scarf.startsWith('blowR'))).toBe(true)
+    expectOnTrack(frames, false)
+    expect(endingMsOf(mood, 6) > ENDING_MS[mood]).toBe(true)
+    expect(endingMsOf(mood, 0)).toBe(ENDING_MS[mood])
+    // The spark rolls home beside it, then the chase goes on.
+    expect(bandOf(mood, { trek: 6 })).toContain('animation:spark-follow')
+    expect(bandOf(mood)).not.toContain('spark-follow')
+  }
+
+  // The fullest band there can be stays within what the app draws: a hard ten-minute
+  // turn answered on New Year's Eve, the snow deep, the snowman finished and dressed.
+  const fullest = bandOf('joy', {
+    occasion: 'newyear',
+    drift: 4,
+    snowman: { stage: 6, gifts: 3 },
+    grand: true,
+    trek: MAX_TREK,
+  })
+
+  expect(fullest.length < SVG_LIMIT).toBe(true)
+})
+
+test('the camp moves on each minute while Claude works, and walks home as it answers', async ($, on) => {
   const clock = mock.clock(on, { now: NOON })
 
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const source = async () => String((await ui.find({ type: 'Svg' }))?.props.source)
+  const svg = async () => (await ui.find({ type: 'Svg' }))?.props
+  const source = async () => String((await svg())?.source)
   const pennant = `d="${pathOf(TREK_FLAG.flag)}"`
 
   await $.turn.start({ text: 'migrate the database', turnId: 'trek' })
   expect((await source()).split(pennant).length - 1).toBe(0)
   await clock.advance(60_000)
   expect((await source()).split(pennant).length - 1).toBe(1)
+  expect(await source()).toContain('class="plant" style="animation-delay:')
+  expect(await source()).toContain('animation:spark-follow')
   await clock.advance(90_000)
   expect((await source()).split(pennant).length - 1).toBe(2)
+
+  // Answered: the big flag at the camp, the run home, and the chase once it is home.
   await $.turn.complete({ answer: 'done', durationMs: 150_000, isAborted: false, turnId: 'trek', reason: 'answer' })
   expect(await source()).toContain('class="fly1"')
+  expect(await source()).toContain('animation:spark-follow')
+  await clock.advance(ENDING_MS.joy + 1000)
+  expect((await svg())?.alt).toBe(ALT.joy)
+  await clock.advance(endingMsOf('joy', 2) - ENDING_MS.joy)
+  expect((await svg())?.alt).toBe(ALT.idle)
+  await ui.unmount()
+})
+
+test('the camp holds still while the person is asked something, and moves on after', async ($, on) => {
+  const clock = mock.clock(on, { now: NOON })
+  const gates: (() => void)[] = []
+
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('tool.call', () => new Promise(done => gates.push(() => done({ result: 'done' }))))
+  on('classic.PermissionRequest', () => ({}))
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface: 'desktop' })
+  const source = async () => String((await ui.find({ type: 'Svg' }))?.props.source)
+  const pennant = `d="${pathOf(TREK_FLAG.flag)}"`
+
+  await $.turn.start({ text: 'deploy it', turnId: 'ask' })
+
+  const running = $.tool.call({ tool: 'Bash', command: 'make deploy', tool_use_id: 'deploy' })
+
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'make deploy' } })
+  await clock.advance(70_000)
+  // A minute gone, and still asking: no flag yet, the hand up.
+  expect((await source()).split(pennant).length - 1).toBe(0)
+  gates.shift()?.()
+  await running
+  await clock.advance(1500)
+  expect((await source()).split(pennant).length - 1).toBe(1)
   await ui.unmount()
 })
 

@@ -1,6 +1,6 @@
 {
   "name": "winter",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "A winter look: snowy-day and winter-night colors, a slow snowfall behind the conversation, and Claude's pixel character above the prompt, chasing a small orange spark, catching your prompt as a paper plane, acting out each tool while Claude works, raising its hand when Claude needs you, cheering when it answers, and keeping time while you focus.",
   "author": { "name": "alnader5" },
   "homepage": "https://github.com/alnader5/claude-winter",

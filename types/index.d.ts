@@ -34,10 +34,10 @@ export type Activity = 'think' | 'edit' | 'read' | 'run' | 'web' | 'wait'
 
 // How a work band starts: with the turn ("!", the prop coming up), with the work
 // switching from one kind of tool to another (a puff, then the new prop), with the
-// same work going on, only harder (no opening at all), or with a celebration of what
-// git just did: a flag waved for a commit, a snowball thrown up for a push, both for
-// both.
-export type Opening = 'start' | 'switch' | 'stay' | 'commit' | 'push' | 'ship'
+// same work going on, only harder (no opening at all), with a celebration of what git
+// just did (a flag waved for a commit, a snowball thrown up for a push, both for both),
+// or, another minute into a long turn, with the camp moving on a step.
+export type Opening = 'start' | 'switch' | 'stay' | 'commit' | 'push' | 'ship' | 'onward'
 
 // How hard the turn has worked so far, by how long it has run and how many tools it
 // has called: the spark whirls faster and glows brighter at each step, and throws off
