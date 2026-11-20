@@ -6,6 +6,13 @@ A winter look for Claude Code: snowy-day colors in light mode and winter-night c
 
 [بالعربية ↓](#بالعربية)
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/alnader5/claude-winter/media/day.png" alt="Winter by day: snow falls slowly behind the conversation, and in the band above the prompt box Claude's pixel character pounces after the orange spark, which darts home past the snowman, trailing sparks" width="100%">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/alnader5/claude-winter/media/chase.gif" alt="The band between turns: the character starts, runs after the spark past the snowman to the far end, pounces and misses, and the spark darts home, shedding sparks" width="100%">
+</p>
+
 - **Between turns** the character, in a knitted hat and a striped scarf, chases a small orange spark along a snowy track. A snowflake lands on the spark, which draws in, swells, and sneezes it off, spraying sparks at the character, who blinks. The character runs after the spark, puffs in the cold, pounces and misses while the spark darts home trailing sparks. While the character slides back across the ice with its arms out and waves to a snowman on the way, the spark dives into the snow and hides, stirring now and then, until it pops out as the character gets home. Together again, they play: a snowflake comes down onto the spark, which bounces it up off its top three times, higher each time, until the last bounce lands it on the character's hat, where it melts. Its footprints melt slowly in the snow.
 - **When you send a prompt** it comes up out of the prompt box as a paper plane. The character catches it, unfolds it and reads it, then meets it by how it sounds, in English or in Arabic:
   - *thanks or praise* (thanks, great job, شكراً, ممتاز): it blushes and dances from side to side, a heart over its head;
@@ -25,6 +32,10 @@ A winter look for Claude Code: snowy-day colors in light mode and winter-night c
 - **For each agent Claude sends off**, a little helper in a colored hat comes out at the far end of the band, pacing with a parcel, and goes home when its agent is done. Up to three show at once.
 - **When a turn ends** the laptop folds away. The character jumps for joy under a green tick when Claude has answered, wonders (`?`) when the turn ended without an answer, and just stands when you stopped it. Then the chase starts again.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/alnader5/claude-winter/media/work.gif" alt="A turn on the band: the prompt comes up as a paper plane, the character catches it and blushes at the thanks in it, types at its laptop as code flies off to the spark, and jumps for joy under fireworks when Claude answers" width="100%">
+</p>
+
 - **The snow is a gauge of the conversation's context**: as the context fills, snow drifts up in banks along the band, a step deeper at 30%, 50%, 70% and 85%. When the conversation is compacted, the character takes up a shovel and clears it away.
 - **A snowman built over days**: on the first day it is a snowball; each day you use Claude Code adds a part (its head, its face, its carrot, its stick arms that wave back, its top hat), and the answers add gifts (a scarf at 20, a broom at 60, a gold star on its hat at 150). It is kept across sessions.
 - **Every move has its finish**: the pom-pom on the character's hat lags behind its moves, its body stretches as it springs up and squashes as it lands, and snow flies up about its feet.
@@ -35,6 +46,28 @@ A winter look for Claude Code: snowy-day colors in light mode and winter-night c
 - **Occasions**: on New Year's Eve and New Year's Day the character wears a party hat under falling confetti. Through Ramadan, by the Umm al-Qura calendar, a lantern hangs over the band and a crescent stands in the sky.
 
 The colors apply wherever Claude Code runs. The snowfall and the band are drawn in the Claude desktop app and the mobile app; a terminal draws no pictures, so there the mod brings the colors alone. The band runs the whole width the app gives it, up to 1200 pixels: the track, the snowman and the ice are laid out to fit it, and the character crosses a wider band faster.
+
+## Gallery · معرض الصور
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/alnader5/claude-winter/media/night.png" alt="Winter by night: the northern lights ripple over a starry sky behind the conversation, the moon glowing through it; in the band Claude's character types at its laptop three minutes into a long turn, three flags behind it, code flying off to the glowing spark, the snowman with its top hat, scarf, broom and star, and two helpers pacing at the far end" width="100%">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/alnader5/claude-winter/media/prompt.png" alt="Meeting your prompt: it comes up as a paper plane; thanks or praise bring a blush, a dance and a heart; a hurry, a start and a bead of sweat; a question, a scratch of the head" width="100%">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/alnader5/claude-winter/media/work.png" alt="While Claude works: thinking at the laptop with a robin on its hat, editing as code flies off to the spark, reading a book, working a terminal's lever, looking through binoculars, a hand raised while Claude needs your answer, and a helper for each agent while the spark blazes" width="100%">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/alnader5/claude-winter/media/along-the-way.png" alt="Along the way: a flag waved for a commit, a snowball and a star for a push, a flag a minute on a long turn and a wave to the snowman, the big flag and fireworks for a long, hard turn answered, and the snow drifted up as the context fills, shoveled away when it is compacted" width="100%">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/alnader5/claude-winter/media/quiet-times.png" alt="Quiet times and occasions: a focus session with the spark's rays going out, the bell at its end, asleep late at night, a party hat and confetti for New Year, a lantern for Ramadan, and the snowman built a part a day, from a snowball to its top hat and star" width="100%">
+</p>
+
+Every picture here is the mod's own drawing: the band and the backdrop exactly as the mod draws them, each moment held still, set in a plain window where the conversation is shown as gray lines.
+
+كل صورة هنا من رسم المود نفسه: الشريط والخلفية كما يرسمهما المود تماماً، وكل لحظة مثبتة في وقتها، داخل نافذة بسيطة تظهر فيها المحادثة خطوطاً رمادية.
 
 ## The /winter command
 
@@ -85,6 +118,8 @@ claude plugin update winter
 ## بالعربية
 
 مود شتوي لـ Claude Code: ألوان يوم ثلجي في الوضع الفاتح وليلة شتوية في الوضع الداكن، وثلج يتساقط ببطء خلف المحادثة، وشخصية Claude البكسلية في شريط صغير فوق صندوق الكتابة.
+
+صوره ورسومه المتحركة في أعلى الصفحة وفي [معرض الصور](#gallery--معرض-الصور)، وتعليقاتها بالعربية والإنجليزية.
 
 ### بين الأدوار
 
