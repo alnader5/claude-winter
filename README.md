@@ -76,14 +76,11 @@ claude plugin install winter --marketplace alnader5/claude-winter
 
 In the desktop app, where `/plugin` does not run: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `alnader5/claude-winter`, then **Add plugin**.
 
-To take a newer version later:
+To take a newer version later, run this, then start a new session:
 
 ```
-claude plugin marketplace update claude-winter
 claude plugin update winter
 ```
-
-then start a new session.
 
 ## بالعربية
 
@@ -174,14 +171,11 @@ then start a new session.
 
 ثم اضغط `y` لإضافة السوق، وEnter للتثبيت في كل جلساتك. وفي تطبيق سطح المكتب: اضغط **+** بجانب صندوق الكتابة، ثم **Plugins**، ثم **Add marketplace** واكتب `alnader5/claude-winter`، ثم **Add plugin**.
 
-ولأخذ نسخة أحدث لاحقاً:
+ولأخذ نسخة أحدث لاحقاً شغّل هذا الأمر، ثم ابدأ جلسة جديدة:
 
 ```
-claude plugin marketplace update claude-winter
 claude plugin update winter
 ```
-
-ثم ابدأ جلسة جديدة.
 
 ## Development
 
