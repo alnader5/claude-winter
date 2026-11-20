@@ -38,6 +38,7 @@ import {
   workingOf,
 } from '../hooks/band'
 import type { Frame, Place } from '../hooks/band'
+import { KEPT_DRAWINGS, drawn, keptDrawings } from '../hooks/drawings'
 import { checkColors } from '../hooks/make-colors.js'
 import { sceneOf } from '../hooks/scene'
 import {
@@ -71,6 +72,7 @@ import {
   driftOf,
   heatOf,
   trekOf,
+  workAltOf,
   type Activity,
   type Tone,
 } from '../hooks/work'
@@ -758,9 +760,13 @@ test('/winter focus sits the character still while the spark goes out, and rings
   expect((await winter('focus stop')).text).toContain('stopped')
   expect((await svg())?.alt).toBe(ALT.idle)
   expect((await winter('focus stop')).text).toContain('no focus')
-  expect((await winter('focus 0')).text).toContain('Usage')
-  expect((await winter('focus 181')).text).toContain('Usage')
+  // Too few minutes or too many: how many a session runs; words it does not know: how to
+  // use /winter.
+  expect((await winter('focus 0')).text).toContain('from 1 to 180 minutes')
+  expect((await winter('focus 181')).text).toContain('from 1 to 180 minutes')
+  expect((await winter('focus 99999999999999999999')).text).toContain('from 1 to 180 minutes')
   expect((await winter('focus soon')).text).toContain('Usage')
+  expect((await winter('focus -5')).text).toContain('Usage')
 
   // A reload in the middle keeps its time.
   await winter('focus 10')
@@ -1334,7 +1340,7 @@ test('the band acts out the tool that runs, each a moment at least, and a questi
 })
 
 test('helpers come out with the agents Claude sends, and go back as each one ends', async ($, on) => {
-  mock.clock(on, { now: NOON })
+  const clock = mock.clock(on, { now: NOON })
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
 
@@ -1345,11 +1351,17 @@ test('helpers come out with the agents Claude sends, and go back as each one end
   await $.turn.start({ text: 'split the work', turnId: 'main' })
   expect(await helpersDrawn()).toBe(0)
 
+  // Sent off while the prompt's plane is still being read: they come out once it has
+  // been, so nothing cuts the opening short.
   for (const agentId of ['scout', 'reader']) {
     await $.turn.start({ text: 'go', turnId: `${agentId}-turn`, agentId })
   }
+  expect(await helpersDrawn()).toBe(0)
+  await clock.advance(openingMsOf('plain'))
   expect(await helpersDrawn()).toBe(2)
   expect((await svg())?.alt).toBe(`${WORK_ALT.think}, with 2 little helpers carrying parcels`)
+  // A helper coming out is no new kind of work: the laptop stays out, with no puff.
+  expect(String((await svg())?.source)).not.toContain('lid-poof')
 
   await $.turn.complete({
     answer: 'found it',
@@ -1359,12 +1371,16 @@ test('helpers come out with the agents Claude sends, and go back as each one end
     agentId: 'scout',
     reason: 'answer',
   })
+  // Each change stays its moment, so helpers coming and going never flicker.
+  expect(await helpersDrawn()).toBe(2)
+  await clock.advance(1500)
   expect(await helpersDrawn()).toBe(1)
 
   // No more than three at once, however many go out.
   for (const agentId of ['a', 'b', 'c', 'd']) {
     await $.turn.start({ text: 'go', turnId: `${agentId}-turn`, agentId })
   }
+  await clock.advance(1500)
   expect(await helpersDrawn()).toBe(3)
   await ui.unmount()
 })
@@ -1561,7 +1577,7 @@ test('a long turn heats the spark up, and its answer sends up fireworks', async 
   await $.turn.start({ text: 'refactor the whole thing', turnId: 'long' })
   expect(String((await svg())?.source)).not.toContain('class="rise"')
   await clock.advance(60_000)
-  expect((await svg())?.alt).toBe(`${WORK_ALT.think}, hard at it for a while now`)
+  expect((await svg())?.alt).toBe(`${WORK_ALT.think}, hard at it for a while now, 1 minute into the turn, a flag on the snow for each`)
   expect(String((await svg())?.source)).toContain('class="rise"')
 
   await ui.unmount()
@@ -2013,4 +2029,306 @@ test('the band yields to a survey, and the terminal draws none', async $ => {
   // Only the engine's own node stands there: the mod drew nothing of its own.
   expect((await terminal.findAll({})).map(element => element.type)).toEqual(['engine'])
   await terminal.unmount()
+})
+
+test('the drawings kept never grow past a bound, the latest asked for staying', () => {
+  let made = 0
+  const draw = (key: string) =>
+    drawn(key, () => {
+      made++
+
+      return `<svg>${key}</svg>`
+    })
+  const many = KEPT_DRAWINGS * 4
+
+  // A long session's worth of moments, each drawn once: only the latest are kept.
+  for (let index = 0; index < many; index++) {
+    expect(draw(`moment:${index}`)).toBe(`<svg>moment:${index}</svg>`)
+  }
+  expect(keptDrawings()).toBe(KEPT_DRAWINGS)
+  expect(made).toBe(many)
+
+  // Asked for again, a kept one is not drawn again, and keeps its place a while longer:
+  // the oldest goes before it.
+  const oldest = `moment:${many - KEPT_DRAWINGS}`
+
+  draw(oldest)
+  draw('moment:new')
+  draw(oldest)
+  expect(made).toBe(many + 1)
+  draw(`moment:${many - KEPT_DRAWINGS + 1}`)
+  expect(made).toBe(many + 2)
+  expect(keptDrawings()).toBe(KEPT_DRAWINGS)
+})
+
+test('the camp makes up the minutes it held still a station at a time, waving as it passes the snowman', async ($, on) => {
+  const clock = mock.clock(on, { now: NOON })
+  const gates: (() => void)[] = []
+
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('tool.call', () => new Promise(done => gates.push(() => done({ result: 'done' }))))
+  on('classic.PermissionRequest', () => ({}))
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface: 'desktop' })
+  const svg = async () => (await ui.find({ type: 'Svg' }))?.props
+  const minutes = async () => Number(/(\d+) minutes? into the turn/.exec(String((await svg())?.alt))?.[1] ?? 0)
+
+  await $.turn.start({ text: 'deploy it', turnId: 'trek' })
+
+  const running = $.tool.call({ tool: 'Bash', command: 'make deploy', tool_use_id: 'deploy' })
+
+  // Six minutes asking: the camp holds at home, the hand up.
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'make deploy' } })
+  await clock.advance(6 * 60_000)
+  expect(String((await svg())?.alt).startsWith(WORK_ALT.wait)).toBe(true)
+  expect(await minutes()).toBe(0)
+
+  // Answered: on it goes, one station at a time, never skipping one.
+  gates.shift()?.()
+  await running
+  expect(await minutes()).toBe(1)
+
+  let last = 1
+  let waved = false
+
+  for (let look = 0; look < 12 && last < 6; look++) {
+    await clock.advance(10_000)
+
+    const now = await minutes()
+
+    expect(now - last === 0 || now - last === 1).toBe(true)
+    if (now === 5 && last === 4) {
+      waved = String((await svg())?.source).includes('pal-wave')
+    }
+    last = now
+  }
+  expect(last).toBe(6)
+  expect(waved).toBe(true)
+  await ui.unmount()
+})
+
+test("Claude's own question and its plan raise the hand until the person answers", async ($, on) => {
+  const clock = mock.clock(on, { now: NOON })
+  const gates: (() => void)[] = []
+
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('tool.call', () => new Promise(done => gates.push(() => done({ result: 'done' }))))
+  // The engine puts each to the person as it would a permission prompt.
+  on('classic.PermissionRequest', () => ({}))
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface: 'desktop' })
+  const alt = async () => (await ui.find({ type: 'Svg' }))?.props.alt
+
+  await $.turn.start({ text: 'plan the move', turnId: 'plan' })
+  await clock.advance(openingMsOf('plain'))
+
+  const question = { question: 'Which one?', header: 'Pick', options: [], multiSelect: false }
+
+  for (const ask of [
+    () => $.tool.call({ tool: 'AskUserQuestion', questions: [question], tool_use_id: 'ask-1' }),
+    () => $.tool.call({ tool: 'ExitPlanMode', tool_use_id: 'plan-1' }),
+  ]) {
+    const call = ask()
+
+    await clock.advance(1500)
+    expect(await alt()).toBe(WORK_ALT.wait)
+    gates.shift()?.()
+    await call
+    await clock.advance(1500)
+    expect(await alt()).toBe(WORK_ALT.think)
+  }
+  expect(['AskUserQuestion', 'ExitPlanMode', 'LSP', 'TaskStop', 'mcp__claude-in-chrome__computer'].map(activityOf)).toEqual([
+    'wait',
+    'wait',
+    'read',
+    'run',
+    'web',
+  ])
+  await ui.unmount()
+})
+
+test("an agent's question to the person raises the hand too, and only that agent's tool lowers it", async ($, on) => {
+  const clock = mock.clock(on, { now: NOON })
+  const gates = new Map<string, () => void>()
+
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('tool.call', (_, e) => new Promise(done => gates.set(e.tool_use_id ?? '', () => done({ result: 'done' }))))
+  // A rule of the person's lets any Glob run: a hook settles it, and nobody is asked.
+  on('classic.PermissionRequest', (_, e) => (e.tool_name === 'Glob' ? { decision: { behavior: 'allow' as const } } : {}))
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface: 'desktop' })
+  const alt = async () => String((await ui.find({ type: 'Svg' }))?.props.alt)
+  const end = async (id: string, call: Promise<unknown>) => {
+    gates.get(id)?.()
+    await call
+  }
+
+  await $.turn.start({ text: 'look into it', turnId: 'main' })
+  await $.turn.start({ text: 'go', turnId: 'scout-turn', agentId: 'scout' })
+  await clock.advance(openingMsOf('plain'))
+
+  // Settled by a hook before any dialog: no hand goes up.
+  await $.classic.PermissionRequest({ tool_name: 'Glob', tool_input: { pattern: '*.md' } })
+  await clock.advance(1500)
+  expect((await alt()).startsWith(WORK_ALT.think)).toBe(true)
+
+  // Claude reads while its agent runs a command that has to ask the person first.
+  const reading = $.tool.call({ tool: 'Read', file_path: '/notes.md', tool_use_id: 'read-1' })
+  const scouting = $.tool.call({ tool: 'Bash', command: 'make test', tool_use_id: 'scout-run', agentId: 'scout' })
+
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'make test' }, agent_id: 'scout' })
+  await clock.advance(1500)
+  expect((await alt()).startsWith(WORK_ALT.wait)).toBe(true)
+
+  // Claude's own read ending answers nothing: the agent still waits on the person.
+  await end('read-1', reading)
+  await clock.advance(1500)
+  expect((await alt()).startsWith(WORK_ALT.wait)).toBe(true)
+
+  // The agent's command let run and done: the hand comes down.
+  await end('scout-run', scouting)
+  await clock.advance(1500)
+  expect((await alt()).startsWith(WORK_ALT.think)).toBe(true)
+  await ui.unmount()
+})
+
+test("a turn's end plays out even while the engine still says it works, and an end it does not know is a stop", async ($, on) => {
+  const clock = mock.clock(on)
+
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface: 'desktop' })
+  const alt = async () => (await ui.find({ type: 'Svg' }))?.props.alt
+
+  await $.turn.start({ text: 'go on', turnId: 'one' })
+  expect(await alt()).toBe(ALT.working)
+  await $.turn.complete({ answer: 'done', durationMs: 900, isAborted: false, turnId: 'one', reason: 'answer' })
+  expect(await alt()).toBe(ALT.joy)
+  await clock.advance(ENDING_MS.joy + 1000)
+  expect(await alt()).toBe(ALT.working)
+
+  await $.turn.start({ text: 'and again', turnId: 'two' })
+  await $.turn.complete({
+    answer: '',
+    durationMs: 900,
+    isAborted: false,
+    turnId: 'two',
+    reason: 'overloaded' as unknown as 'error',
+  })
+  expect(await alt()).toBe(ALT.closing)
+  await ui.unmount()
+})
+
+test('with no store to answer, the session still starts with its look, and /winter still answers', async ($, on) => {
+  let look: ThemeSetArgs | undefined
+  let command: string | undefined
+
+  mock.clock(on, { now: NOON })
+  on('store.get', () => {
+    throw new Error('no store here')
+  })
+  on('store.set', () => {
+    throw new Error('no store here')
+  })
+  on('command.register', (_, e) => {
+    command = e.name
+
+    return { value: { command: e.name } }
+  })
+  on('theme.set', (_, e) => {
+    look = e
+
+    return { value: { isDrawn: true, requestId: 'backdrop' } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(look?.colors?.label).toBe('Winter')
+  expect(command).toBe('winter')
+
+  const winter = (args: string) =>
+    $.command.run({
+      command: 'winter',
+      args,
+      origin: { kind: 'composer' },
+      presentation: { isFullscreen: false, columns: 80 },
+    })
+
+  expect((await winter('calm')).text).toContain('Winter: calm.')
+  expect((await winter('')).text).toContain('Winter: calm.')
+  expect((await winter('sound off')).text).toContain('sounds off')
+})
+
+test("held still, a long turn's ending shows the spark beside the character at its camp", () => {
+  const sparkBy = TRACK.sparkHome.px - HOME.x.px
+  const varsIn = (source: string, part: string) => {
+    const found = new RegExp(`\\.${part}\\{--of:([-\\d.e]+);--px:([-\\d.e]+)px`).exec(source)
+
+    return found === null ? undefined : { of: Number(found[1]), px: Number(found[2]) }
+  }
+
+  for (const trek of [0, 3, 6, 10]) {
+    for (const calm of [false, true]) {
+      const source = bandOf('joy', { calm, trek })
+      const walker = varsIn(source, 'walker')
+      const spark = varsIn(source, 'spark-x')
+
+      expect(walker).toBeDefined()
+      expect(spark).toBeDefined()
+      expect(Math.abs((spark?.of ?? 0) - (walker?.of ?? 1)) < 1e-6).toBe(true)
+      expect(Math.abs((spark?.px ?? 0) - (walker?.px ?? 0) - sparkBy) < 0.01).toBe(true)
+      expect(Math.abs((walker?.of ?? 0) - campAt(trek).of) < 1e-6).toBe(true)
+    }
+  }
+})
+
+test('the screen reader hears how long a long turn has run; a bare "do" is a request, and the day reads alike everywhere', () => {
+  const work = { activity: 'run' as const, opening: 'stay' as const, helpers: 0, tone: 'plain' as const, heat: 0 as const }
+
+  expect(workAltOf({ ...work, trek: 0 })).toBe(WORK_ALT.run)
+  expect(workAltOf({ ...work, trek: 1 })).toBe(`${WORK_ALT.run}, 1 minute into the turn, a flag on the snow for each`)
+  expect(workAltOf({ ...work, trek: 7, helpers: 2 })).toBe(
+    `${WORK_ALT.run}, 7 minutes into the turn, a flag on the snow for each, with 2 little helpers carrying parcels`,
+  )
+
+  expect(toneOf('do the refactor')).toBe('plain')
+  expect(toneOf('do it again for the tests')).toBe('plain')
+  expect(toneOf('do you think it works')).toBe('question')
+  expect(toneOf('does it build on windows')).toBe('question')
+
+  expect(dayOf(new Date(2026, 0, 5, 23, 59).getTime())).toBe('2026-01-05')
+  expect(dayOf(new Date(2026, 11, 31, 0, 0).getTime())).toBe('2026-12-31')
+
+  // The backdrop's style is escaped as the band's is: nothing in it a parser could take
+  // for a tag.
+  for (const sky of ['night', 'dawn', 'day', 'dusk'] as const) {
+    const style = /<style>([\s\S]*?)<\/style>/.exec(sceneOf({ sky, occasion: 'ramadan' }))?.[1] ?? '<'
+
+    expect(style.includes('<')).toBe(false)
+  }
+})
+
+test("a slip in the band's own bookkeeping never fails Claude's tool, its question or its turn", async ($, on) => {
+  // The engine beneath, with no clock to read: every look the band takes at it fails.
+  on('clock.now', () => {
+    throw new Error('no clock here')
+  })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('tool.call', () => ({ result: 'done' }))
+  on('classic.PermissionRequest', () => ({}))
+
+  expect(await $.turn.start({ text: 'go', turnId: 'slip' })).toEqual({ turnId: 'slip' })
+
+  const ran = await $.tool.call({ tool: 'Bash', command: 'git commit -m "x"', tool_use_id: 'slip-1' })
+
+  expect('result' in ran ? ran.result : undefined).toBe('done')
+  expect(await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'ls' } })).toEqual({})
+  expect(
+    await $.turn.complete({ answer: 'done', durationMs: 100, isAborted: false, turnId: 'slip', reason: 'answer' }),
+  ).toEqual({ text: 'done' })
 })

@@ -152,6 +152,7 @@ import {
 } from './sprite'
 import type { Book, Box, Burst, Dust, Glyph, Laptop, Pom, Rect, Scope, Screen, Shovel, Sweat, Twinkle } from './sprite'
 import type { Drift, Snowman } from '../types'
+import { textOf } from './markup'
 import type { Occasion } from './time'
 import { FRESH_WORK, MAX_HELPERS, MAX_TREK } from './work'
 import type { Activity, Heat, Tone, Work } from './work'
@@ -1840,7 +1841,9 @@ function rollCssOf({ frames, spark }: Story): string {
 // moves wait for the intro to end. Asleep, it rests at home. Waiting on the person, it
 // holds still and glows; as the work switches tools, it whirls on at once.
 function sparkCssOf(mood: Mood, reel: Reel, story: Story, work: Work, tempo = 1): string {
-  const home = `.spark-x{${varsOf(story.spark.home)};transform:translateX(${SMOOTH})`
+  // Where it stands when nothing moves: beside the character's still frame, so a long
+  // turn's ending, held still, shows the two of them together at its camp.
+  const home = `.spark-x{${varsOf(sparkBeside(reel.poster))};transform:translateX(${SMOOTH})`
   const loop = secondsOf(story.frames.length)
   const intro = secondsOf(reel.intro.length / tempo)
   // Beside the character as it walks a long turn's way, out or home.
@@ -2425,13 +2428,6 @@ function helpersOf(count: number): Layer {
       '.helper-a,.helper-b{animation:helper-step 0.34s step-end infinite}.helper-b{animation-delay:-0.17s}' +
       '@keyframes helper-step{0%{opacity:1}50%{opacity:0}}',
   }
-}
-
-// The style as text in the markup, escaped: it then reads the same parsed as XML, as
-// HTML, or through the desktop's scrub, which takes a bare "<length>" in an @property
-// rule for a tag, drops it, and the rule with it.
-function textOf(css: string): string {
-  return css.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 // Everything that moves: what reduced motion holds still, and /winter calm too.

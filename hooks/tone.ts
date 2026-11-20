@@ -24,9 +24,10 @@ const URGENT = [
   /(عاجل|بسرعه|سريعا|فورا|حالا|ضروري|مستعجل|استعجل)/,
 ]
 
-// How a question opens, when it ends with no question mark.
+// How a question opens, when it ends with no question mark. "do" asks only before whom
+// it asks about: on its own it tells Claude to do something.
 const QUESTION = [
-  /^(how|why|what|when|where|which|who|whose|is|are|was|were|can|could|would|should|does|do|did|will)\b/,
+  /^(how|why|what|when|where|which|who|whose|is|are|was|were|can|could|would|should|does|do (?:you|we|i|they)|did|will)\b/,
   /^(هل|كيف|لماذا|ليش|ماذا|ما هو|ما هي|ما رايك|متى|اين|وين|كم|من هو|من هي|ايش|شو)(\s|$)/,
 ]
 

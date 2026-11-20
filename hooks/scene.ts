@@ -9,6 +9,7 @@
 // alike. Where the frame reports the dark scheme, the flakes turn white and keep a
 // thin gray-blue edge, so they still show if the app itself is in light mode.
 
+import { textOf } from './markup'
 import type { Occasion, Sky } from './time'
 
 export const SCENE_NAME = 'snowfall'
@@ -165,10 +166,7 @@ export function sceneOf({
     ? '  /* /winter calm */ .flake { animation: none; transform: translate(0, var(--rest)); } .star { animation: none; }\n'
     : ''
 
-  // The viewBox is cut to fill any window and anchored at the foot, so the hills stay on
-  // the bottom edge. On a tall box, such as a phone, the corner pines move in.
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${HEIGHT}" preserveAspectRatio="xMidYMax slice">
-<style>
+  const style = `
   .flake { fill: #7f9bb8; animation-name: fall; animation-timing-function: linear; animation-iteration-count: infinite; }
   .far { opacity: 0.4; }
   .mid { opacity: 0.55; }
@@ -224,7 +222,13 @@ export function sceneOf({
     .star { animation: none; }
     .shoot, .aurora { animation: none; }
   }
-${still}</style>
+${still}`
+
+  // The viewBox is cut to fill any window and anchored at the foot, so the hills stay on
+  // the bottom edge. On a tall box, such as a phone, the corner pines move in. The style
+  // is escaped as the band's is, so it reads the same however the app parses it.
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${HEIGHT}" preserveAspectRatio="xMidYMax slice">
+<style>${textOf(style)}</style>
 <defs>
   <linearGradient id="night" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2a4a" stop-opacity="0.3"/><stop offset="0.75" stop-color="#1b2a4a" stop-opacity="0"/></linearGradient>
   <linearGradient id="dawn" x1="0" y1="0" x2="0" y2="1"><stop offset="0.35" stop-color="#f7b58f" stop-opacity="0"/><stop offset="0.92" stop-color="#f7b58f" stop-opacity="0.38"/></linearGradient>

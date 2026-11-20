@@ -4,6 +4,7 @@ import type { EngineInterface, Register, ThemeSetArgs, Timer, TurnCompleteReason
 import type { Activity, Beat, Drift, Focus, Motion, Occasion, Snowman, Sky, Tone, Work } from '../types'
 import { ALT, BAND_HEIGHT, MAX_WIDTH, bandOf, endingMsOf, introMsOf, openingMsOf } from './band'
 import type { Ending, Mood } from './band'
+import { drawn } from './drawings'
 import { makeColors } from './make-colors.js'
 import { WINTER } from './palette'
 import { SCENE_ALT, SCENE_NAME, sceneOf } from './scene'
@@ -22,21 +23,6 @@ const LOOK: ThemeSetArgs = {
   colors: theme,
   // A light frost: the snow stays in sight behind the panels, and the words stay first.
   backdrop: { scene: SCENE_NAME, glass: { blur: 4, opacity: 0.64 } },
-}
-
-// Each drawing, of the band or of the backdrop, is made the first time it is asked for,
-// and kept. The band's fits whatever width the app gives it, on a desktop or a phone.
-const drawings = new Map<string, string>()
-
-function drawn(key: string, draw: () => string): string {
-  let drawing = drawings.get(key)
-
-  if (drawing === undefined) {
-    drawing = draw()
-    drawings.set(key, drawing)
-  }
-
-  return drawing
 }
 
 // The band at work is drawn for the work as well: what Claude is busy with, how the
@@ -64,7 +50,7 @@ const bandFor = (
 }
 
 // The focus band is drawn for how far into the session it comes on, so its rays show
-// the time left; only the latest such drawing is kept.
+// the time left.
 function focusBandFor(
   calm: boolean,
   occasion: Occasion,
@@ -74,12 +60,6 @@ function focusBandFor(
   snowman: Snowman,
 ): string {
   const key = `focus:${calm}:${occasion}:${focus.startedAt}:${focus.endsAt}:${at}:${drift}:${snowman.stage}:${snowman.gifts}`
-
-  for (const old of drawings.keys()) {
-    if (old.startsWith('focus:') && old !== key) {
-      drawings.delete(old)
-    }
-  }
 
   return drawn(key, () =>
     bandOf('focus', {
@@ -169,6 +149,9 @@ const focusSaid = (minutes: number) =>
 const FOCUS_STOPPED = 'Winter: focus stopped. · الشتاء: توقف التركيز.'
 const NO_FOCUS = 'Winter: no focus session is running. · الشتاء: لا توجد جلسة تركيز الآن.'
 const FOCUS_UP = 'Winter: focus time is up. · الشتاء: انتهى وقت التركيز.'
+const FOCUS_RANGE =
+  `Winter: a focus session runs from 1 to ${MAX_FOCUS_MINUTES} minutes, such as /winter focus 25. · ` +
+  `الشتاء: تمتد جلسة التركيز من دقيقة واحدة إلى ${MAX_FOCUS_MINUTES} دقيقة، مثل ‎/winter focus 25.`
 const focusLeft = (minutes: number) =>
   `Focus: ${minutes} minute${minutes === 1 ? '' : 's'} left. · التركيز: بقي ${minutes} دقيقة.`
 
@@ -189,6 +172,17 @@ const SETTLE_MS = 1000
 let stirred = 0
 let ticker: Timer | undefined
 
+// The band's own bookkeeping, around what it watches: a slip in it costs the band a
+// beat, and never holds up or fails the event it rides on, Claude's tool, the person's
+// answer, or a timer's next round.
+async function quietly(work: () => unknown): Promise<void> {
+  try {
+    await work()
+  } catch {
+    // The band misses this beat; what it watches goes on.
+  }
+}
+
 // Whether the sounds are on, as /winter sound last left it; off until it is asked for.
 let isSounding = false
 
@@ -196,7 +190,7 @@ let isSounding = false
 // first of the system's players that runs. Nothing waits on it.
 function play($: EngineInterface, sound: Sound): void {
   if (isSounding) {
-    void playSound($, sound)
+    void quietly(() => playSound($, sound))
   }
 }
 
@@ -207,6 +201,26 @@ let bellEnd: Timer | undefined
 let focusShown: { startedAt: number; at: number } | undefined
 let lastMood: Mood | undefined
 
+// What the store keeps under `key`: nothing where no store answers, so the mod still
+// starts and answers as it would on a first run.
+async function kept($: EngineInterface, key: string): Promise<unknown> {
+  try {
+    return await $.store.get(key)
+  } catch {
+    return undefined
+  }
+}
+
+// Keeps `value` under `key` for the next sessions, where a store answers; this session
+// goes on with it either way.
+async function keep($: EngineInterface, key: string, value: unknown): Promise<void> {
+  try {
+    await $.store.set(key, value)
+  } catch {
+    // Kept for this session only.
+  }
+}
+
 // The day the snowman was last worked on, as this load saw it.
 let builtDay = ''
 
@@ -214,8 +228,8 @@ let builtDay = ''
 // answer. The store keeps it; with none to keep it in, the snowman stays as it is.
 async function build($: EngineInterface, answered: boolean): Promise<void> {
   try {
-    const kept = await $.store.get('snowman')
-    const was = isBuild(kept) ? kept : FRESH_BUILD
+    const stored = await $.store.get('snowman')
+    const was = isBuild(stored) ? stored : FRESH_BUILD
     const now = builtOn(was, dayOf(await $.clock.now()), answered)
 
     builtDay = now.lastDay
@@ -263,15 +277,21 @@ async function stir($: EngineInterface): Promise<void> {
   }
 }
 
-// The tools running on the main loop, by call, each with what the character does while
-// it runs; whether a question waits on the person; when the band last changed work, the
-// change it waits to make, and until when the turn's opening plays, uncut; and the
-// agents out at work, by id.
+// Whether a turn of the main loop is under way; the tools running on it, by call, each
+// with what the character does while it runs; the loops a permission prompt waits on
+// the person for ('' for the main loop, else the agent's id); when the band last
+// changed work, the change it waits to make, and until when the turn's opening plays,
+// uncut; and the agents out at work, by id.
+let isTurning = false
 const running = new Map<string, Activity>()
-let isAsking = false
+const asking = new Set<string>()
+const agents = new Set<string>()
 let shownAt = 0
 let openedUntil = 0
 let switching: Timer | undefined
+
+// The loop an event happened in, as `asking` names it.
+const loopOf = (agentId: string | undefined) => agentId ?? ''
 
 // When the main loop's turn began, how many tools it has called, and the look every
 // few seconds at how hard it is working.
@@ -280,15 +300,15 @@ let tools = 0
 let heating: Timer | undefined
 const HEAT_LOOK_MS = 10_000
 
-// What git just did that the band has yet to celebrate.
+// What git just did that the band has yet to celebrate; and a count for naming a call
+// that comes with no id.
 let cheered: Cheer | undefined
-const agents = new Set<string>()
 let calls = 0
 
-// What the band should show of the work now: a question first, then the tool begun
-// last, and the laptop when none runs.
+// What the band should show of the work now: a question to the person first, Claude's
+// or an agent's, then the tool begun last, and the laptop when none runs.
 function wanted(): Activity {
-  if (isAsking) {
+  if (asking.size > 0) {
     return 'wait'
   }
   let last: Activity = 'think'
@@ -300,28 +320,46 @@ function wanted(): Activity {
   return last
 }
 
-// Shows the work wanted, and how hard it goes, once what the band shows has had its
-// moment; until then, sets the change to come when the moment is up, with whatever is
-// wanted by then. A new kind of work opens with a puff; the same work, hotter, goes on.
+// Shows the work wanted, how hard it goes and the helpers out, once what the band
+// shows has had its moment; until then, sets the change to come when the moment is up,
+// with whatever is wanted by then. A new kind of work opens with a puff; the same work,
+// hotter or with a helper more or less, goes on. Between turns only the helpers change.
 async function showWork($: EngineInterface): Promise<void> {
   switching?.cancel()
   switching = undefined
 
+  const shown = await read($, work)
+  const helpers = Math.min(agents.size, MAX_HELPERS)
+
+  if (!isTurning) {
+    if (shown.helpers !== helpers) {
+      await update($, work, old => ({ ...old, helpers }))
+    }
+
+    return
+  }
   const now = await $.clock.now()
   const next = wanted()
   const heat = heatOf(now - turnStartedAt, tools)
-  const shown = await read($, work)
-  // A long turn's camp moves on a step each minute, but not while the person is asked
-  // something, nor through a cheer: it moves on once they are over.
-  const trek = next === 'wait' || cheered !== undefined ? shown.trek : Math.max(shown.trek, trekOf(now - turnStartedAt))
+  // A long turn's camp moves on a station each minute, one at a time, so it never skips
+  // one: not while the person is asked something, nor through a cheer, and the minutes
+  // that went by meanwhile it makes up a station a look.
+  const due = trekOf(now - turnStartedAt)
+  const trek = next === 'wait' || cheered !== undefined ? shown.trek : Math.max(shown.trek, Math.min(shown.trek + 1, due))
 
-  if (shown.activity === next && shown.heat >= heat && shown.trek >= trek && cheered === undefined) {
+  if (
+    shown.activity === next &&
+    shown.heat >= heat &&
+    shown.trek >= trek &&
+    shown.helpers === helpers &&
+    cheered === undefined
+  ) {
     return
   }
   const left = Math.max(shownAt + SHOW_WORK_MS, openedUntil) - now
 
   if (left > 0) {
-    switching = $.clock.after(left, () => void showWork($))
+    switching = $.clock.after(left, () => void quietly(() => showWork($)))
 
     return
   }
@@ -334,6 +372,7 @@ async function showWork($: EngineInterface): Promise<void> {
   const shownNow = await update($, work, old => ({
     ...old,
     activity: next,
+    helpers,
     heat: heat > old.heat ? heat : old.heat,
     trek: Math.max(old.trek, trek),
     opening: cheer ?? (trek > old.trek ? ('onward' as const) : old.activity === next ? ('stay' as const) : ('switch' as const)),
@@ -358,10 +397,11 @@ async function cheerFor($: EngineInterface, command: string): Promise<boolean> {
 }
 
 // A turn begins or ends: the band's next work opens the turn afresh, met by how its
-// prompt sounds, the helpers kept. No tool's act cuts into the opening.
+// prompt sounds, the helpers kept. No tool's act cuts into the opening. An agent's
+// question, if one waits, still waits.
 async function freshWork($: EngineInterface, tone: Tone = 'none'): Promise<void> {
   running.clear()
-  isAsking = false
+  asking.delete('')
   switching?.cancel()
   switching = undefined
   heating?.cancel()
@@ -372,15 +412,6 @@ async function freshWork($: EngineInterface, tone: Tone = 'none'): Promise<void>
   turnStartedAt = shownAt
   tools = 0
   await update($, work, old => ({ ...FRESH_WORK, helpers: old.helpers, tone }))
-}
-
-// The helpers on the band: one for each agent out at work, up to the most drawn.
-async function countHelpers($: EngineInterface): Promise<void> {
-  const helpers = Math.min(agents.size, MAX_HELPERS)
-
-  if ((await read($, work)).helpers !== helpers) {
-    await update($, work, old => ({ ...old, helpers, opening: 'switch' as const }))
-  }
 }
 
 // Starts a focus session of `minutes`, in place of any under way.
@@ -395,7 +426,7 @@ async function startFocus($: EngineInterface, minutes: number): Promise<void> {
 function armFocus($: EngineInterface, ms: number): void {
   focusEnd?.cancel()
   bellEnd?.cancel()
-  focusEnd = $.clock.after(ms, () => void ring($))
+  focusEnd = $.clock.after(ms, () => void quietly(() => ring($)))
 }
 
 // The time is up: the bell rings a while, then the chase comes back.
@@ -405,7 +436,7 @@ async function ring($: EngineInterface): Promise<void> {
   $.ui.toast(FOCUS_UP)
   play($, 'bell')
   bellEnd?.cancel()
-  bellEnd = $.clock.after(BELL_MS, () => void update($, focus, () => null))
+  bellEnd = $.clock.after(BELL_MS, () => void quietly(() => update($, focus, () => null)))
 }
 
 async function stopFocus($: EngineInterface): Promise<void> {
@@ -416,9 +447,9 @@ async function stopFocus($: EngineInterface): Promise<void> {
   await update($, focus, () => null)
 }
 
-// "/winter focus 25", "/winter focus", "/winter focus stop": what to do, or nothing
-// for words that are none of these.
-function focusAsked(words: readonly string[]): { minutes: number } | 'stop' | undefined {
+// "/winter focus 25", "/winter focus", "/winter focus stop": what to do; `range` for a
+// number of minutes too few or too many; nothing for words that are none of these.
+function focusAsked(words: readonly string[]): { minutes: number } | 'stop' | 'range' | undefined {
   const [, what] = words
 
   if (words.length === 1) {
@@ -430,70 +461,85 @@ function focusAsked(words: readonly string[]): { minutes: number } | 'stop' | un
   if (what === 'stop' || what === 'off') {
     return 'stop'
   }
-  const minutes = /^\d{1,3}$/.test(what) ? Number(what) : NaN
+  if (!/^\d+$/.test(what)) {
+    return undefined
+  }
+  const minutes = Number(what)
 
-  return minutes >= 1 && minutes <= MAX_FOCUS_MINUTES ? { minutes } : undefined
+  return minutes >= 1 && minutes <= MAX_FOCUS_MINUTES ? { minutes } : 'range'
 }
 
+// Each hook that stands between Claude and what it does (a tool, a permission prompt,
+// a compaction) keeps its own slips to itself, and should one get past, its guard
+// passes the event on as it was: the band never holds up or changes Claude's work.
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    // While building: the line that would stop Desktop painting this look.
-    const unpainted = problems.find(line => line.startsWith("Desktop won't paint"))
+    // The look first, and the command: nothing that follows can keep them back.
+    await quietly(async () => {
+      const set = await $.theme.set(LOOK)
 
-    if (unpainted !== undefined) {
-      $.ui.toast(unpainted)
-    }
-    // A beat from before a reload belongs to a turn whose end may never reach this
-    // load's timers; while a turn runs, the band's own isWorking still shows it.
-    await update($, beat, () => null)
+      if (!set.isDrawn) {
+        $.ui.status(set.reason)
+      }
+    })
+    await quietly(() =>
+      $.command.register({
+        name: 'winter',
+        description: 'Calm the winter band and snow, hide the band, set them moving again, focus for a while, or turn sounds on',
+        argumentHint: 'on | calm | off | focus [minutes] | focus stop | sound on | sound off',
+      }),
+    )
 
-    // No work under way, and no helpers out.
-    agents.clear()
-    await freshWork($)
-    await update($, work, () => FRESH_WORK)
+    await quietly(async () => {
+      // While building: the line that would stop Desktop painting this look.
+      const unpainted = problems.find(line => line.startsWith("Desktop won't paint"))
 
-    // A focus session from before a reload keeps its time: its end is set again, or,
-    // if it has ended meanwhile, it is over.
-    const session = await read($, focus)
-    const now = await $.clock.now()
+      if (unpainted !== undefined) {
+        $.ui.toast(unpainted)
+      }
+      // A beat from before a reload belongs to a turn whose end may never reach this
+      // load's timers; while a turn runs, the band's own isWorking still shows it.
+      await update($, beat, () => null)
 
-    focusShown = undefined
-    lastMood = undefined
+      // No work under way, no helpers out and no question waiting.
+      isTurning = false
+      agents.clear()
+      asking.clear()
+      await freshWork($)
+      await update($, work, () => FRESH_WORK)
 
-    // No compaction is under way as a session starts or reloads.
-    await update($, isShoveling, () => false)
+      // A focus session from before a reload keeps its time: its end is set again, or,
+      // if it has ended meanwhile, it is over.
+      const session = await read($, focus)
+      const now = await $.clock.now()
 
-    if (session !== null && !session.isDone && session.endsAt > now) {
-      armFocus($, session.endsAt - now)
-    } else if (session !== null) {
-      await stopFocus($)
-    }
+      focusShown = undefined
+      lastMood = undefined
 
-    // As /winter last left it, in this session or an earlier one.
-    const kept = await $.store.get('motion')
+      // No compaction is under way as a session starts or reloads.
+      await update($, isShoveling, () => false)
 
-    await update($, motion, () => (isMotion(kept) ? kept : 'on'))
-    isSounding = (await $.store.get('sound')) === true
-    forgetPlayer()
+      if (session !== null && !session.isDone && session.endsAt > now) {
+        armFocus($, session.endsAt - now)
+      } else if (session !== null) {
+        await stopFocus($)
+      }
 
-    // The snowman as far as it is built, a part on to it on a new day.
-    await build($, false)
+      // As /winter last left it, in this session or an earlier one.
+      const moving = await kept($, 'motion')
 
-    // The clock now, and once a minute from now on.
-    await stir($)
-    await look($)
-    ticker?.cancel()
-    ticker = $.clock.every(60_000, () => void look($))
+      await update($, motion, () => (isMotion(moving) ? moving : 'on'))
+      isSounding = (await kept($, 'sound')) === true
+      forgetPlayer()
 
-    const set = await $.theme.set(LOOK)
+      // The snowman as far as it is built, a part on to it on a new day.
+      await build($, false)
 
-    if (!set.isDrawn) {
-      $.ui.status(set.reason)
-    }
-    await $.command.register({
-      name: 'winter',
-      description: 'Calm the winter band and snow, hide the band, set them moving again, focus for a while, or turn sounds on',
-      argumentHint: 'on | calm | off | focus [minutes] | focus stop | sound on | sound off',
+      // The clock now, and once a minute from now on.
+      await stir($)
+      await look($)
+      ticker?.cancel()
+      ticker = $.clock.every(60_000, () => void quietly(() => look($)))
     })
 
     return next(e)
@@ -521,7 +567,7 @@ export const register: Register = on => {
         return { text: USAGE }
       }
       isSounding = what === 'on'
-      await $.store.set('sound', isSounding)
+      await keep($, 'sound', isSounding)
 
       if (!isSounding) {
         return { text: SOUNDS_OFF }
@@ -538,6 +584,9 @@ export const register: Register = on => {
       if (what === undefined) {
         return { text: USAGE }
       }
+      if (what === 'range') {
+        return { text: FOCUS_RANGE }
+      }
       if (what === 'stop') {
         const hadOne = (await read($, focus)) !== null
 
@@ -552,7 +601,7 @@ export const register: Register = on => {
     if (!isMotion(asked)) {
       return { text: USAGE }
     }
-    await $.store.set('motion', asked)
+    await keep($, 'motion', asked)
     await update($, motion, () => asked)
 
     return { text: SAID[asked] }
@@ -561,37 +610,69 @@ export const register: Register = on => {
   // The main loop's turns open the work, met by how the prompt sounds; an agent's turn
   // brings a helper out.
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined) {
-      await stir($)
-      await freshWork($, toneOf(e.text))
-      await update($, beat, () => ({ mood: 'working', turnId: e.turnId, heat: 0, trek: 0 }))
-      // Every few seconds, a look at how hard the turn is working.
-      heating = $.clock.every(HEAT_LOOK_MS, () => void showWork($))
-    } else {
-      agents.add(e.agentId)
-      await countHelpers($)
-    }
+    await quietly(async () => {
+      if (e.agentId === undefined) {
+        await stir($)
+        await freshWork($, toneOf(e.text))
+        isTurning = true
+        await update($, beat, () => ({ mood: 'working', turnId: e.turnId, heat: 0, trek: 0 }))
+        // Every few seconds, a look at how hard the turn is working.
+        heating = $.clock.every(HEAT_LOOK_MS, () => void quietly(() => showWork($)))
+      } else {
+        agents.add(e.agentId)
+        await showWork($)
+      }
+    })
 
     return next(e)
   })
 
   // A tool on the main loop: the character acts it out while it runs. A commit or a
-  // push that went through, Claude's own or an agent's, is cheered.
+  // push that went through, Claude's own or an agent's, is cheered. A tool's end, in
+  // any loop, answers the question that loop was waiting on, if any: a loop asks for
+  // one tool at a time, and goes on only once the person has answered. The tool's own
+  // outcome is passed on as it is, whatever becomes of the band's.
   on('tool.call', async ($, e, next) => {
     if (e.agentId !== undefined) {
-      const result = await next(e)
+      const loop = loopOf(e.agentId)
+      let result: Awaited<ReturnType<typeof next>> | undefined
 
-      if (e.tool === 'Bash' && result.deny === undefined && result.isError !== true && (await cheerFor($, e.command))) {
-        await showWork($)
+      try {
+        result = await next(e)
+
+        return result
+      } finally {
+        const ran = result
+
+        await quietly(async () => {
+          const wasAsking = asking.delete(loop)
+          const isCheer =
+            e.tool === 'Bash' &&
+            ran !== undefined &&
+            ran.deny === undefined &&
+            ran.isError !== true &&
+            (await cheerFor($, e.command))
+
+          if (wasAsking || isCheer) {
+            await showWork($)
+          }
+        })
       }
-
-      return result
     }
     const call = e.tool_use_id ?? `call-${calls++}`
 
+    // A tool on the main loop: a turn is under way. One this load did not see begin (it
+    // began before a reload) is timed from now, its heat and its minutes with it.
+    if (!isTurning) {
+      isTurning = true
+      tools = 0
+      await quietly(async () => {
+        turnStartedAt = await $.clock.now()
+      })
+    }
     tools++
     running.set(call, activityOf(e.tool))
-    await showWork($)
+    await quietly(() => showWork($))
 
     let result: Awaited<ReturnType<typeof next>> | undefined
 
@@ -600,44 +681,51 @@ export const register: Register = on => {
 
       return result
     } finally {
+      const ran = result
+
       running.delete(call)
-      isAsking = false
-
-      if (e.tool === 'Bash' && result !== undefined && result.deny === undefined && result.isError !== true) {
-        await cheerFor($, e.command)
-      }
-      await showWork($)
+      asking.delete('')
+      await quietly(async () => {
+        if (e.tool === 'Bash' && ran !== undefined && ran.deny === undefined && ran.isError !== true) {
+          await cheerFor($, e.command)
+        }
+        await showWork($)
+      })
     }
-  })
+  }).catch(($, e, next) => next(e))
 
-  // A permission dialog is about to ask the person: a hand goes up until the tool is
-  // let run and done, or refused.
+  // A permission dialog is about to ask the person, for Claude or for one of its
+  // agents: a hand goes up until the tool is let run and done, or refused. One that a
+  // hook settles first (a rule of the person's, another mod) asks nobody.
   on('classic.PermissionRequest', async ($, e, next) => {
-    if (e.agent_id === undefined) {
-      isAsking = true
-      await showWork($)
+    const answer = await next(e)
+
+    if (answer.decision === undefined) {
+      asking.add(loopOf(e.agent_id))
+      await quietly(() => showWork($))
     }
 
-    return next(e)
-  })
+    return answer
+  }).catch(($, e, next) => next(e))
 
   on('classic.PermissionDenied', async ($, e, next) => {
-    if (e.agent_id === undefined) {
-      isAsking = false
-      await showWork($)
+    if (asking.delete(loopOf(e.agent_id))) {
+      await quietly(() => showWork($))
     }
 
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   // After each turn the engine measures the session: the snow drifts as deep as the
   // context is full, drawn again only when it changes.
   on('session.measure', async ($, e, next) => {
-    const level = driftOf(e.context.percent)
+    await quietly(async () => {
+      const level = driftOf(e.context.percent)
 
-    if ((await read($, drift)) !== level) {
-      await update($, drift, () => level)
-    }
+      if ((await read($, drift)) !== level) {
+        await update($, drift, () => level)
+      }
+    })
 
     return next(e)
   })
@@ -649,28 +737,33 @@ export const register: Register = on => {
     if (e.agentId !== undefined || e.trigger === 'precompute') {
       return next(e)
     }
-    await update($, isShoveling, () => true)
+    await quietly(() => update($, isShoveling, () => true))
 
     try {
       const result = await next(e)
 
       if (result.skip === undefined) {
-        await update($, drift, () => 0)
+        await quietly(() => update($, drift, () => 0))
       }
 
       return result
     } finally {
-      await update($, isShoveling, () => false)
+      await quietly(() => update($, isShoveling, () => false))
     }
-  })
+  }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
-    if (e.agentId !== undefined) {
-      // An agent's run is over: its helper goes back.
-      agents.delete(e.agentId)
-      await countHelpers($)
-    } else {
-      const mood = ENDING_OF[e.reason]
+    await quietly(async () => {
+      if (e.agentId !== undefined) {
+        // An agent's run is over: its helper goes back, its question if any with it.
+        agents.delete(e.agentId)
+        asking.delete(loopOf(e.agentId))
+        await showWork($)
+
+        return
+      }
+      // A way of ending this version does not know yet is met as a stop is.
+      const mood = ENDING_OF[e.reason] ?? 'closing'
       const { turnId } = e
       // How hard and how long it worked, by the end: a hard turn answered ends in
       // fireworks, a long one in a flag planted. The ending starts where the camp
@@ -680,6 +773,7 @@ export const register: Register = on => {
       const trek = shown.trek
 
       await stir($)
+      isTurning = false
       await freshWork($)
       await update($, beat, () => ({ mood, turnId, heat, trek }))
 
@@ -691,9 +785,9 @@ export const register: Register = on => {
 
       // Then back to the chase, unless another turn has begun meanwhile.
       $.clock.after(endingMsOf(mood, trek) + SETTLE_MS, () => {
-        void update($, beat, now => (now?.turnId === turnId && now.mood === mood ? null : now))
+        void quietly(() => update($, beat, now => (now?.turnId === turnId && now.mood === mood ? null : now)))
       })
-    }
+    })
 
     return next(e)
   })
@@ -713,14 +807,22 @@ export const register: Register = on => {
     const now = await read($, beat)
     const { occasion } = await read($, when)
     const session = await read($, focus)
-    // The engine's word that a turn runs comes first; the beat bridges the moments
-    // around it, so the work shows from the turn's start and its end plays out. With
-    // neither, a focus session sits still or rings its bell; and with none, it sleeps
+    // A turn's end plays out first, whatever the engine still says of the work in the
+    // moment after it; then the engine's word that a turn runs; and the beat bridges
+    // the moment before that word, so the work shows from the turn's start. With none
+    // of these, a focus session sits still or rings its bell; and with none, it sleeps
     // late at night when nothing has happened for a while.
     const rest: Mood =
       session !== null ? (session.isDone ? 'bell' : 'focus') : (await read($, isAsleep)) ? 'sleep' : 'idle'
+    const isEnding = now !== null && now.mood !== 'working'
     // Shoveling while the conversation is compacted comes before all.
-    const mood: Mood = (await read($, isShoveling)) ? 'shovel' : e.props.isWorking ? 'working' : (now?.mood ?? rest)
+    const mood: Mood = (await read($, isShoveling))
+      ? 'shovel'
+      : isEnding
+        ? now.mood
+        : e.props.isWorking
+          ? 'working'
+          : (now?.mood ?? rest)
     const deep = await read($, drift)
     const built = await read($, snowman)
     const at = await read($, work)

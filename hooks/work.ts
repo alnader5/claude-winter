@@ -47,12 +47,15 @@ export function heatOf(ms: number, tools: number): Heat {
 // The most helpers drawn at once: past this many, the band would be crowded.
 export const MAX_HELPERS = 3
 
-// Tools by name, and what the character does while each runs.
+// Tools by name, and what the character does while each runs: older names too, for an
+// older Claude Code. A question Claude asks the person, and a plan it puts to them, wait
+// on their answer as a permission prompt does.
 const KINDS: Readonly<Record<string, Activity>> = {
   Read: 'read',
   Grep: 'read',
   Glob: 'read',
   LS: 'read',
+  LSP: 'read',
   NotebookRead: 'read',
   Edit: 'edit',
   Write: 'edit',
@@ -60,10 +63,14 @@ const KINDS: Readonly<Record<string, Activity>> = {
   NotebookEdit: 'edit',
   Bash: 'run',
   BashOutput: 'run',
+  TaskOutput: 'run',
   KillShell: 'run',
+  TaskStop: 'run',
   Monitor: 'run',
   WebSearch: 'web',
   WebFetch: 'web',
+  AskUserQuestion: 'wait',
+  ExitPlanMode: 'wait',
 }
 
 /**
@@ -71,7 +78,7 @@ const KINDS: Readonly<Record<string, Activity>> = {
  * are a look out at the web; any other tool is work at the laptop.
  */
 export function activityOf(tool: string): Activity {
-  return KINDS[tool] ?? (/browser|navigate|web/i.test(tool) ? 'web' : 'think')
+  return KINDS[tool] ?? (/browser|chrome|navigate|web/i.test(tool) ? 'web' : 'think')
 }
 
 // The band at work in words, for a screen reader.
@@ -84,9 +91,14 @@ export const WORK_ALT: Readonly<Record<Activity, string>> = {
   wait: "Claude's pixel character raising its hand: Claude is waiting for your answer",
 }
 
-export function workAltOf({ activity, helpers, tone, heat }: Work): string {
+/**
+ * The band at work in words: what Claude is busy with, how hard and how fast, how many
+ * minutes a long turn has run (a flag along the snow for each), and the helpers out.
+ */
+export function workAltOf({ activity, helpers, tone, heat, trek }: Work): string {
   const hard = heat >= 2 ? `${WORK_ALT[activity]}, hard at it for a while now` : WORK_ALT[activity]
-  const alt = tone === 'urgent' ? `${hard}, in a hurry` : hard
+  const fast = tone === 'urgent' ? `${hard}, in a hurry` : hard
+  const alt = trek >= 1 ? `${fast}, ${trek} minute${trek === 1 ? '' : 's'} into the turn, a flag on the snow for each` : fast
 
   return helpers === 0 ? alt : `${alt}, with ${helpers} little helper${helpers === 1 ? '' : 's'} carrying parcels`
 }

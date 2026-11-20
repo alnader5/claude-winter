@@ -27,9 +27,15 @@ export const isBuild = (value: unknown): value is Build =>
   typeof value.lastDay === 'string' &&
   typeof value.answers === 'number'
 
-/** The day of `ms` on this machine's calendar, as YYYY-MM-DD. */
+/**
+ * The day of `ms` on this machine's calendar, as YYYY-MM-DD: worked out from the date
+ * itself, so a runtime with few or no locales gives the same.
+ */
 export function dayOf(ms: number): string {
-  return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(ms)
+  const date = new Date(ms)
+  const two = (value: number) => String(value).padStart(2, '0')
+
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
 }
 
 /** The build after a look on `today`, with one more answer if `answered`. */
